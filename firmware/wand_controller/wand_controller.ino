@@ -3,9 +3,9 @@
 #include <WiFiUdp.h>
 
 // --- Configuration ---
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-const int   UDP_PORT      = 9999;
+// Create config.h from config.h.example and set your WiFi credentials.
+#include "config.h"
+const int UDP_PORT = 9999;
 
 // Broadcast address — listener on any machine on the LAN will receive
 IPAddress broadcastIP(255, 255, 255, 255);
@@ -52,7 +52,7 @@ void loop() {
 
     // Read IMU data
     float roll, pitch, yaw;
-    myCodeCell.Motion_RotationRead(roll, pitch, yaw);
+    myCodeCell.Motion_RotationNoMagRead(roll, pitch, yaw);
 
     float ax, ay, az;
     myCodeCell.Motion_AccelerometerRead(ax, ay, az);

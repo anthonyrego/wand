@@ -24,6 +24,7 @@ const uint8_t TYPE_ACK       = 0x02;
 // Discovery/connection timing
 const unsigned long DISCOVERY_INTERVAL_MS = 500;
 const unsigned long ACK_TIMEOUT_MS        = 5000;
+const unsigned int  MAX_SEND_FAILURES     = 10;
 
 // --- State machine ---
 enum WandState { DISCOVERING, STREAMING };
@@ -31,6 +32,7 @@ WandState state = DISCOVERING;
 IPAddress listenerIP;
 unsigned long lastAckTime = 0;
 unsigned long lastDiscoveryTime = 0;
+unsigned int  sendFailures = 0;
 
 CodeCell myCodeCell;
 WiFiUDP udp;
@@ -56,20 +58,32 @@ void setup() {
   udp.begin(UDP_PORT);
 }
 
-// Check for incoming ack packets. Returns true if an ack was received.
+// Drain all pending packets, returning true if any ack was found.
 bool checkForAck() {
-  int packetSize = udp.parsePacket();
-  if (packetSize >= CTRL_SIZE) {
-    uint8_t inBuf[CTRL_SIZE];
-    udp.read(inBuf, CTRL_SIZE);
-    if (inBuf[0] == MAGIC0 && inBuf[1] == MAGIC1 &&
-        inBuf[2] == VERSION && inBuf[3] == TYPE_ACK) {
-      listenerIP = udp.remoteIP();
-      lastAckTime = millis();
-      return true;
+  bool foundAck = false;
+  int packetSize;
+  while ((packetSize = udp.parsePacket()) > 0) {
+    if (packetSize >= CTRL_SIZE) {
+      uint8_t inBuf[CTRL_SIZE];
+      udp.read(inBuf, CTRL_SIZE);
+      if (inBuf[0] == MAGIC0 && inBuf[1] == MAGIC1 &&
+          inBuf[2] == VERSION && inBuf[3] == TYPE_ACK) {
+        listenerIP = udp.remoteIP();
+        lastAckTime = millis();
+        foundAck = true;
+      }
     }
   }
-  return false;
+  return foundAck;
+}
+
+// Reinitialize UDP and enter discovery state.
+void enterDiscovering() {
+  state = DISCOVERING;
+  sendFailures = 0;
+  udp.stop();
+  udp.begin(UDP_PORT);
+  Serial.println("Rediscovering...");
 }
 
 void sendDiscovery() {
@@ -80,7 +94,7 @@ void sendDiscovery() {
 }
 
 void loop() {
-  if (myCodeCell.Run(60)) {
+  if (myCodeCell.Run(40)) {
 
     // Reconnect WiFi if dropped
     if (WiFi.status() != WL_CONNECTED) {
@@ -110,8 +124,7 @@ void loop() {
 
         // Timeout — fall back to discovery
         if (millis() - lastAckTime > ACK_TIMEOUT_MS) {
-          state = DISCOVERING;
-          Serial.println("Listener lost, rediscovering...");
+          enterDiscovering();
           break;
         }
 
@@ -143,10 +156,17 @@ void loop() {
         memcpy(&packet[32], &gy,    4);
         memcpy(&packet[36], &gz,    4);
 
-        // Send via unicast UDP to discovered listener
-        udp.beginPacket(listenerIP, UDP_PORT);
-        udp.write(packet, PACKET_SIZE);
-        udp.endPacket();
+        // Send via unicast UDP — track failures to detect dead host
+        int ok = udp.beginPacket(listenerIP, UDP_PORT);
+        if (ok) {
+          udp.write(packet, PACKET_SIZE);
+          ok = udp.endPacket();
+        }
+        if (ok) {
+          sendFailures = 0;
+        } else if (++sendFailures >= MAX_SEND_FAILURES) {
+          enterDiscovering();
+        }
         break;
       }
     }

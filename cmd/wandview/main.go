@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 
 	"github.com/Zyko0/go-sdl3/bin/binsdl"
@@ -20,6 +21,36 @@ import (
 
 const numSamples = 300
 
+const (
+	particleCount = 300
+
+	riverXMin     = float32(-3.0)
+	riverXMax     = float32(3.0)
+	riverYBase    = float32(0.0)
+	riverYScatter = float32(0.3)
+	riverZMin     = float32(-2.0)
+	riverZMax     = float32(-5.0)
+
+	flowSpeedMin = float32(0.3)
+	flowSpeedMax = float32(0.8)
+
+	sizeMin = float32(0.015)
+	sizeMax = float32(0.045)
+
+	waveAmplitude = float32(0.6)
+	maxAccel      = float32(25.0)
+	lerpFactor    = float32(6.0)
+)
+
+type riverParticle struct {
+	X, Y, Z    float32
+	BaseY      float32
+	VelX       float32
+	Size       float32
+	Brightness uint8
+	displY     float32
+}
+
 type WandViewGame struct {
 	wand     *wand.Listener
 	pause    *ui.PauseMenu
@@ -27,9 +58,10 @@ type WandViewGame struct {
 
 	tunnel *mesh.Mesh
 
-	waveVB     *sdl.GPUBuffer
-	waveIB     *sdl.GPUBuffer
-	waveIdxCnt uint32
+	particles   []riverParticle
+	riverVB     *sdl.GPUBuffer
+	riverIB     *sdl.GPUBuffer
+	riverIdxCnt uint32
 
 	samples  [numSamples]float32
 	writePos int
@@ -154,6 +186,7 @@ func (g *WandViewGame) Init(e *engine.Engine) error {
 
 	// Wand listener
 	g.wand = wand.New(9999)
+	g.wand.SetSmoothing(0.5)
 	if err := g.wand.Start(); err != nil {
 		return fmt.Errorf("wand: %w", err)
 	}
@@ -197,6 +230,12 @@ func (g *WandViewGame) Init(e *engine.Engine) error {
 
 	g.rotation = mgl32.Ident4()
 
+	// Particle river
+	g.particles = make([]riverParticle, particleCount)
+	for i := range g.particles {
+		g.spawnParticle(&g.particles[i], true)
+	}
+
 	return nil
 }
 
@@ -232,6 +271,19 @@ func (g *WandViewGame) Update(e *engine.Engine, dt float32) bool {
 			g.writePos = 0
 			g.filled = true
 		}
+
+		// Update particle river
+		alpha := float32(1.0) - float32(math.Exp(float64(-lerpFactor*dt)))
+		for i := range g.particles {
+			p := &g.particles[i]
+			p.X += p.VelX * dt
+			if p.X > riverXMax+0.5 {
+				g.spawnParticle(p, false)
+			}
+			targetY := g.sampleWaveAtX(p.X)
+			p.displY += (targetY - p.displY) * alpha
+			p.Y = p.BaseY + p.displY
+		}
 	}
 
 	return true
@@ -250,70 +302,63 @@ func (g *WandViewGame) Render(e *engine.Engine, frame renderer.RenderFrame) {
 		NoFog:        true,
 	})
 
-	// Build and draw waveform
-	g.renderWaveform(e, frame)
+	// Draw particle river
+	g.renderParticleRiver(e, frame)
 }
 
-func (g *WandViewGame) renderWaveform(e *engine.Engine, frame renderer.RenderFrame) {
-	// Release previous frame's buffers
-	if g.waveVB != nil {
-		e.Rend.ReleaseBuffer(g.waveVB)
-		g.waveVB = nil
+func (g *WandViewGame) renderParticleRiver(e *engine.Engine, frame renderer.RenderFrame) {
+	if g.riverVB != nil {
+		e.Rend.ReleaseBuffer(g.riverVB)
+		g.riverVB = nil
 	}
-	if g.waveIB != nil {
-		e.Rend.ReleaseBuffer(g.waveIB)
-		g.waveIB = nil
-	}
-
-	sampleCount := g.writePos
-	if g.filled {
-		sampleCount = numSamples
-	}
-	if sampleCount < 2 {
-		return
+	if g.riverIB != nil {
+		e.Rend.ReleaseBuffer(g.riverIB)
+		g.riverIB = nil
 	}
 
-	const (
-		waveZ      = float32(-3.0)
-		waveXMin   = float32(-2.0)
-		waveXMax   = float32(2.0)
-		waveHeight = float32(0.8)
-		thickness  = float32(0.03)
-		maxAccel   = float32(25.0)
-	)
+	n := len(g.particles)
+	vertices := make([]renderer.LitVertex, 0, n*4)
+	indices := make([]uint16, 0, n*6)
 
-	vertices := make([]renderer.LitVertex, 0, sampleCount*2)
-	indices := make([]uint16, 0, (sampleCount-1)*6)
+	right := frame.CamRight
+	up := frame.CamUp
 
-	for i := 0; i < sampleCount; i++ {
-		// Read oldest-to-newest
-		idx := i
-		if g.filled {
-			idx = (g.writePos + i) % numSamples
-		}
+	for i := range g.particles {
+		p := &g.particles[i]
 
-		t := float32(i) / float32(sampleCount-1)
-		x := waveXMin + t*(waveXMax-waveXMin)
+		rx := right[0] * p.Size
+		ry := right[1] * p.Size
+		rz := right[2] * p.Size
+		ux := up[0] * p.Size
+		uy := up[1] * p.Size
+		uz := up[2] * p.Size
 
-		normalized := g.samples[idx] / maxAccel
-		if normalized > 1 {
-			normalized = 1
-		}
-		y := (normalized - 0.5) * 2.0 * waveHeight
-
+		b := p.Brightness
 		base := uint16(len(vertices))
+
 		vertices = append(vertices,
-			renderer.LitVertex{X: x, Y: y + thickness, Z: waveZ, NX: 0, NY: 0, NZ: 1, R: 255, G: 255, B: 255, A: 255},
-			renderer.LitVertex{X: x, Y: y - thickness, Z: waveZ, NX: 0, NY: 0, NZ: 1, R: 255, G: 255, B: 255, A: 255},
+			renderer.LitVertex{
+				X: p.X - rx - ux, Y: p.Y - ry - uy, Z: p.Z - rz - uz,
+				NX: 0, NY: 0, NZ: 1, R: b, G: b, B: b, A: 255,
+			},
+			renderer.LitVertex{
+				X: p.X + rx - ux, Y: p.Y + ry - uy, Z: p.Z + rz - uz,
+				NX: 0, NY: 0, NZ: 1, R: b, G: b, B: b, A: 255,
+			},
+			renderer.LitVertex{
+				X: p.X + rx + ux, Y: p.Y + ry + uy, Z: p.Z + rz + uz,
+				NX: 0, NY: 0, NZ: 1, R: b, G: b, B: b, A: 255,
+			},
+			renderer.LitVertex{
+				X: p.X - rx + ux, Y: p.Y - ry + uy, Z: p.Z - rz + uz,
+				NX: 0, NY: 0, NZ: 1, R: b, G: b, B: b, A: 255,
+			},
 		)
 
-		if i > 0 {
-			prev := base - 2
-			indices = append(indices,
-				prev, prev+1, base,
-				base, prev+1, base+1,
-			)
-		}
+		indices = append(indices,
+			base, base+1, base+2,
+			base, base+2, base+3,
+		)
 	}
 
 	vb, err := e.Rend.CreateLitVertexBuffer(vertices)
@@ -326,16 +371,15 @@ func (g *WandViewGame) renderWaveform(e *engine.Engine, frame renderer.RenderFra
 		return
 	}
 
-	g.waveVB = vb
-	g.waveIB = ib
-	g.waveIdxCnt = uint32(len(indices))
+	g.riverVB = vb
+	g.riverIB = ib
+	g.riverIdxCnt = uint32(len(indices))
 
-	waveMVP := frame.ViewProj
 	e.Rend.DrawLit(frame.CmdBuf, frame.ScenePass, renderer.LitDrawCall{
-		VertexBuffer: g.waveVB,
-		IndexBuffer:  g.waveIB,
-		IndexCount:   g.waveIdxCnt,
-		MVP:          waveMVP,
+		VertexBuffer: g.riverVB,
+		IndexBuffer:  g.riverIB,
+		IndexCount:   g.riverIdxCnt,
+		MVP:          frame.ViewProj,
 		NoFog:        true,
 	})
 }
@@ -350,10 +394,67 @@ func (g *WandViewGame) Destroy(e *engine.Engine) {
 	g.wand.Stop()
 	g.pause.Destroy(e.Rend)
 	g.tunnel.Destroy(e.Rend)
-	if g.waveVB != nil {
-		e.Rend.ReleaseBuffer(g.waveVB)
+	if g.riverVB != nil {
+		e.Rend.ReleaseBuffer(g.riverVB)
 	}
-	if g.waveIB != nil {
-		e.Rend.ReleaseBuffer(g.waveIB)
+	if g.riverIB != nil {
+		e.Rend.ReleaseBuffer(g.riverIB)
 	}
+}
+
+func (g *WandViewGame) spawnParticle(p *riverParticle, randomX bool) {
+	if randomX {
+		p.X = riverXMin + rand.Float32()*(riverXMax-riverXMin)
+	} else {
+		p.X = riverXMin - rand.Float32()*0.5
+	}
+	p.Z = riverZMin + rand.Float32()*(riverZMax-riverZMin)
+	p.BaseY = riverYBase + (rand.Float32()*2-1)*riverYScatter
+	p.Y = p.BaseY
+	p.VelX = flowSpeedMin + rand.Float32()*(flowSpeedMax-flowSpeedMin)
+
+	// Closer particles (Z near riverZMin/-2) are bigger and brighter
+	depthT := (p.Z - riverZMax) / (riverZMin - riverZMax) // 0=far, 1=near
+	p.Size = sizeMin + depthT*(sizeMax-sizeMin) + rand.Float32()*0.005
+	p.Brightness = uint8(100 + depthT*155)
+	p.displY = 0
+}
+
+func (g *WandViewGame) sampleWaveAtX(x float32) float32 {
+	sampleCount := g.writePos
+	if g.filled {
+		sampleCount = numSamples
+	}
+	if sampleCount < 2 {
+		return 0
+	}
+
+	// Map X to [0,1]: left=newest, right=oldest
+	t := (x - riverXMin) / (riverXMax - riverXMin)
+	if t < 0 {
+		t = 0
+	}
+	if t > 1 {
+		t = 1
+	}
+
+	age := t * float32(sampleCount-1)
+	idx0 := int(age)
+	idx1 := idx0 + 1
+	if idx1 >= sampleCount {
+		idx1 = sampleCount - 1
+	}
+	frac := age - float32(idx0)
+
+	// Ring buffer: newest at writePos-1, going backward
+	ri0 := (g.writePos - 1 - idx0 + numSamples) % numSamples
+	ri1 := (g.writePos - 1 - idx1 + numSamples) % numSamples
+
+	raw := g.samples[ri0] + (g.samples[ri1]-g.samples[ri0])*frac
+
+	normalized := raw / maxAccel
+	if normalized > 1 {
+		normalized = 1
+	}
+	return (normalized - 0.5) * 2.0 * waveAmplitude
 }

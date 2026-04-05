@@ -133,15 +133,16 @@ func (l *Listener) readLoop() {
 				continue
 			}
 
+			now := time.Now()
 			l.state.Store(state)
-			l.lastPacket.Store(time.Now().UnixNano())
+			l.lastPacket.Store(now.UnixNano())
 			l.remoteAddr.Store(addr)
 			l.packetsReceived.Add(1)
 
 			// Send periodic keepalive ack every 2 seconds
-			if time.Since(time.Unix(0, l.lastAckSent.Load())) > 2*time.Second {
+			if now.Sub(time.Unix(0, l.lastAckSent.Load())) > 2*time.Second {
 				l.conn.WriteToUDP(ack, addr)
-				l.lastAckSent.Store(time.Now().UnixNano())
+				l.lastAckSent.Store(now.UnixNano())
 			}
 
 		default:

@@ -92,6 +92,69 @@ func TestListenerConnected(t *testing.T) {
 	t.Error("Connected() never became true after sending packet")
 }
 
+func TestListenerDiscovery(t *testing.T) {
+	l := New(0)
+	if err := l.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer l.Stop()
+
+	boundAddr := l.conn.LocalAddr().(*net.UDPAddr)
+	// Use loopback with the listener's port for routing
+	addr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: boundAddr.Port}
+
+	// Use ListenUDP so we can both send and receive
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatalf("ListenUDP: %v", err)
+	}
+	defer conn.Close()
+
+	// Send a discovery packet
+	if _, err := conn.WriteToUDP(EncodeDiscovery(), addr); err != nil {
+		t.Fatalf("send discovery: %v", err)
+	}
+
+	// Expect an ack back
+	conn.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 16)
+	n, _, err := conn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("read ack: %v", err)
+	}
+
+	pt, err := ParseControlPacket(buf[:n])
+	if err != nil {
+		t.Fatalf("parse ack: %v", err)
+	}
+	if pt != PacketTypeAck {
+		t.Errorf("type = %d, want %d", pt, PacketTypeAck)
+	}
+
+	if l.DiscoveriesReceived() == 0 {
+		t.Error("expected discovery count > 0")
+	}
+
+	// Now send a data packet and verify state works
+	want := State{Roll: 45.0, Pitch: -10.0, Yaw: 90.0, Seq: 1}
+	if _, err := conn.WriteToUDP(EncodePacket(want), addr); err != nil {
+		t.Fatalf("send data: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if l.PacketsReceived() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	got := l.State()
+	if got.Roll != want.Roll {
+		t.Errorf("Roll = %v, want %v", got.Roll, want.Roll)
+	}
+}
+
 func TestListenerDropsInvalidPackets(t *testing.T) {
 	l := New(0)
 	if err := l.Start(); err != nil {

@@ -76,6 +76,76 @@ func TestEncodePacketSize(t *testing.T) {
 	}
 }
 
+func TestEncodeDiscovery(t *testing.T) {
+	data := EncodeDiscovery()
+	if len(data) != ControlPacketSize {
+		t.Errorf("size = %d, want %d", len(data), ControlPacketSize)
+	}
+	if data[0] != MagicByte0 || data[1] != MagicByte1 {
+		t.Error("bad magic bytes")
+	}
+	if data[2] != ProtocolVersion {
+		t.Errorf("version = %d, want %d", data[2], ProtocolVersion)
+	}
+	if data[3] != PacketTypeDiscovery {
+		t.Errorf("type = %d, want %d", data[3], PacketTypeDiscovery)
+	}
+}
+
+func TestEncodeAck(t *testing.T) {
+	data := EncodeAck()
+	if len(data) != ControlPacketSize {
+		t.Errorf("size = %d, want %d", len(data), ControlPacketSize)
+	}
+	if data[3] != PacketTypeAck {
+		t.Errorf("type = %d, want %d", data[3], PacketTypeAck)
+	}
+}
+
+func TestParseControlPacket(t *testing.T) {
+	// Valid discovery
+	pt, err := ParseControlPacket(EncodeDiscovery())
+	if err != nil {
+		t.Fatalf("discovery: %v", err)
+	}
+	if pt != PacketTypeDiscovery {
+		t.Errorf("type = %d, want %d", pt, PacketTypeDiscovery)
+	}
+
+	// Valid ack
+	pt, err = ParseControlPacket(EncodeAck())
+	if err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+	if pt != PacketTypeAck {
+		t.Errorf("type = %d, want %d", pt, PacketTypeAck)
+	}
+
+	// Too short
+	_, err = ParseControlPacket([]byte{0x57, 0x44})
+	if err != ErrPacketTooShort {
+		t.Errorf("short: got %v, want ErrPacketTooShort", err)
+	}
+
+	// Bad magic
+	_, err = ParseControlPacket([]byte{0xFF, 0x44, 0x01, 0x01})
+	if err != ErrBadMagic {
+		t.Errorf("magic: got %v, want ErrBadMagic", err)
+	}
+
+	// Bad version
+	_, err = ParseControlPacket([]byte{0x57, 0x44, 0xFF, 0x01})
+	if err != ErrBadVersion {
+		t.Errorf("version: got %v, want ErrBadVersion", err)
+	}
+
+	// Unknown type
+	_, err = ParseControlPacket([]byte{0x57, 0x44, 0x01, 0xFF})
+	if err != ErrUnknownPacketType {
+		t.Errorf("unknown: got %v, want ErrUnknownPacketType", err)
+	}
+}
+
 func TestParsePacketSpecialFloats(t *testing.T) {
 	s := State{Roll: 0, Pitch: -0, Yaw: math.Float32frombits(0)}
 	data := EncodePacket(s)

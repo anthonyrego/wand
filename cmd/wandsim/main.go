@@ -27,12 +27,40 @@ func main() {
 		os.Exit(1)
 	}
 
-	conn, err := net.DialUDP("udp", nil, addr)
+	// Use ListenUDP so we can both send discovery and receive acks
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "dial: %v\n", err)
+		fmt.Fprintf(os.Stderr, "listen: %v\n", err)
 		os.Exit(1)
 	}
 	defer conn.Close()
+
+	// Discovery: send discovery packets until we get an ack
+	fmt.Printf("Discovering listener at %s...\n", target)
+	discovery := wand.EncodeDiscovery()
+	buf := make([]byte, 16)
+
+	for {
+		if _, err := conn.WriteToUDP(discovery, addr); err != nil {
+			fmt.Fprintf(os.Stderr, "send discovery: %v\n", err)
+			os.Exit(1)
+		}
+
+		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			continue // timeout, retry
+		}
+
+		pt, err := wand.ParseControlPacket(buf[:n])
+		if err == nil && pt == wand.PacketTypeAck {
+			fmt.Println("Listener found! Streaming data...")
+			break
+		}
+	}
+
+	// Clear deadline for the data loop
+	conn.SetReadDeadline(time.Time{})
 
 	fmt.Printf("Sending simulated wand data to %s at 50Hz\n", target)
 	fmt.Println("Press Ctrl+C to stop")
@@ -61,7 +89,7 @@ func main() {
 		}
 
 		data := wand.EncodePacket(s)
-		if _, err := conn.Write(data); err != nil {
+		if _, err := conn.WriteToUDP(data, addr); err != nil {
 			fmt.Fprintf(os.Stderr, "write: %v\n", err)
 		}
 

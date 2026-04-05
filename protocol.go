@@ -11,12 +11,18 @@ const (
 	MagicByte0      = 0x57 // 'W'
 	MagicByte1      = 0x44 // 'D'
 	ProtocolVersion = 0x01
+
+	// Control packet types (4-byte packets used for discovery handshake).
+	ControlPacketSize    = 4
+	PacketTypeDiscovery  = 0x01
+	PacketTypeAck        = 0x02
 )
 
 var (
-	ErrPacketTooShort  = errors.New("wand: packet too short")
-	ErrBadMagic        = errors.New("wand: invalid magic bytes")
-	ErrBadVersion      = errors.New("wand: unsupported protocol version")
+	ErrPacketTooShort    = errors.New("wand: packet too short")
+	ErrBadMagic          = errors.New("wand: invalid magic bytes")
+	ErrBadVersion        = errors.New("wand: unsupported protocol version")
+	ErrUnknownPacketType = errors.New("wand: unknown control packet type")
 )
 
 // State holds the latest IMU readings from the wand controller.
@@ -69,4 +75,32 @@ func EncodePacket(s State) []byte {
 	binary.LittleEndian.PutUint32(buf[32:36], math.Float32bits(s.GyroY))
 	binary.LittleEndian.PutUint32(buf[36:40], math.Float32bits(s.GyroZ))
 	return buf
+}
+
+// EncodeDiscovery builds a 4-byte discovery packet.
+func EncodeDiscovery() []byte {
+	return []byte{MagicByte0, MagicByte1, ProtocolVersion, PacketTypeDiscovery}
+}
+
+// EncodeAck builds a 4-byte acknowledgement packet.
+func EncodeAck() []byte {
+	return []byte{MagicByte0, MagicByte1, ProtocolVersion, PacketTypeAck}
+}
+
+// ParseControlPacket validates a 4-byte control packet and returns the packet type.
+func ParseControlPacket(data []byte) (uint8, error) {
+	if len(data) < ControlPacketSize {
+		return 0, ErrPacketTooShort
+	}
+	if data[0] != MagicByte0 || data[1] != MagicByte1 {
+		return 0, ErrBadMagic
+	}
+	if data[2] != ProtocolVersion {
+		return 0, ErrBadVersion
+	}
+	pt := data[3]
+	if pt != PacketTypeDiscovery && pt != PacketTypeAck {
+		return 0, ErrUnknownPacketType
+	}
+	return pt, nil
 }

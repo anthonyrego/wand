@@ -19,8 +19,11 @@ type Listener struct {
 	remoteAddr atomic.Value // stores net.Addr
 
 	// Stats
-	packetsReceived atomic.Uint64
-	packetsDropped  atomic.Uint64
+	packetsReceived     atomic.Uint64
+	packetsDropped      atomic.Uint64
+	discoveriesReceived atomic.Uint64
+
+	lastAckSent atomic.Int64 // unix nano of last ack sent
 }
 
 // New creates a Listener that will bind to the given UDP port.
@@ -88,8 +91,15 @@ func (l *Listener) PacketsDropped() uint64 {
 	return l.packetsDropped.Load()
 }
 
+// DiscoveriesReceived returns the total number of discovery packets received.
+func (l *Listener) DiscoveriesReceived() uint64 {
+	return l.discoveriesReceived.Load()
+}
+
 func (l *Listener) readLoop() {
 	buf := make([]byte, 128) // larger than PacketSize to detect oversized packets
+	ack := EncodeAck()
+
 	for {
 		select {
 		case <-l.done:
@@ -103,15 +113,39 @@ func (l *Listener) readLoop() {
 			continue // timeout or closed connection
 		}
 
-		state, err := ParsePacket(buf[:n])
-		if err != nil {
-			l.packetsDropped.Add(1)
-			continue
-		}
+		switch {
+		case n == ControlPacketSize:
+			pt, err := ParseControlPacket(buf[:n])
+			if err != nil {
+				l.packetsDropped.Add(1)
+				continue
+			}
+			if pt == PacketTypeDiscovery {
+				l.discoveriesReceived.Add(1)
+				l.conn.WriteToUDP(ack, addr)
+				l.lastAckSent.Store(time.Now().UnixNano())
+			}
 
-		l.state.Store(state)
-		l.lastPacket.Store(time.Now().UnixNano())
-		l.remoteAddr.Store(addr)
-		l.packetsReceived.Add(1)
+		case n >= PacketSize:
+			state, err := ParsePacket(buf[:n])
+			if err != nil {
+				l.packetsDropped.Add(1)
+				continue
+			}
+
+			l.state.Store(state)
+			l.lastPacket.Store(time.Now().UnixNano())
+			l.remoteAddr.Store(addr)
+			l.packetsReceived.Add(1)
+
+			// Send periodic keepalive ack every 2 seconds
+			if time.Since(time.Unix(0, l.lastAckSent.Load())) > 2*time.Second {
+				l.conn.WriteToUDP(ack, addr)
+				l.lastAckSent.Store(time.Now().UnixNano())
+			}
+
+		default:
+			l.packetsDropped.Add(1)
+		}
 	}
 }

@@ -42,7 +42,7 @@ void setup() {
 
 void loop() {
   // Run at 50Hz — returns true at the configured rate
-  if (myCodeCell.Run(50)) {
+  if (myCodeCell.Run(60)) {
 
     // Reconnect WiFi if dropped
     if (WiFi.status() != WL_CONNECTED) {

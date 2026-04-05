@@ -2,7 +2,7 @@ FQBN   := esp32:esp32:esp32c6
 PORT   := /dev/cu.usbmodem101
 SKETCH := firmware/wand_controller
 
-.PHONY: compile upload test sim monitor
+.PHONY: compile upload test sim monitor view
 
 compile:
 	arduino-cli compile --fqbn $(FQBN) $(SKETCH)
@@ -18,3 +18,6 @@ sim:
 
 monitor:
 	go run ./cmd/wandtest
+
+view:
+	cd cmd/wandview && go run .

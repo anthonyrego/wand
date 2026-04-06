@@ -16,6 +16,7 @@ import (
 
 func main() {
     w := wand.New(9999)
+    w.SetSmoothing(0.3) // optional: SLERP-based orientation smoothing [0, 1]
     w.Start()
     defer w.Stop()
 
@@ -29,10 +30,10 @@ func main() {
 
 ## How It Works
 
-The CodeCell C6 reads its onboard IMU and broadcasts 40-byte UDP packets at 50Hz over WiFi. The Go package listens for these packets and provides lock-free, thread-safe access to the latest state from any goroutine.
+The CodeCell C6 reads its onboard IMU and sends 40-byte UDP packets at 40Hz over WiFi. Connection is zero-config: the controller broadcasts a discovery packet, the Go listener responds with an ack, and the controller then unicasts directly to it. Periodic keepalive acks maintain the connection.
 
 ```
-CodeCell C6 ──UDP 50Hz──> Go "wand" package ──> Your game
+CodeCell C6 ──UDP 40Hz──> Go "wand" package ──> Your game
 ```
 
 ### State
@@ -44,23 +45,34 @@ Each reading contains:
 
 ## Tools
 
-Test without hardware using the included simulator:
-
 ```sh
-# Terminal 1: listen for wand data
-go run ./cmd/wandtest
-
-# Terminal 2: send simulated IMU data at 50Hz
-go run ./cmd/wandsim
+make sim        # send fake IMU data over UDP (no hardware needed)
+make monitor    # display live IMU readings in terminal
+make view       # launch 3D orientation viewer (requires wand hardware)
+make test       # run all Go tests
+make compile    # compile firmware
+make upload     # compile + flash firmware (interactive board selection)
 ```
+
+Test without hardware by running `make sim` in one terminal and `make monitor` in another.
+
+### 3D Viewer
+
+`cmd/wandview` renders an inward-facing color sphere driven by the wand's orientation, with an accelerometer waveform overlay. It uses the [Construct](https://github.com/anthonyrego/construct) engine and lives in its own Go module to keep the root wand package dependency-free.
 
 ## Hardware Setup
 
-1. Flash `firmware/wand_controller/wand_controller.ino` to a CodeCell C6 using the Arduino IDE
-2. Set your WiFi SSID and password in the sketch
-3. The controller broadcasts to UDP port 9999 on your local network — no IP configuration needed
+1. Copy `firmware/wand_controller/config.h.example` to `config.h` and set your WiFi SSID and password
+2. Run `make upload` — it will list connected boards and prompt you to select one before compiling and flashing
+3. The controller discovers the listener automatically over UDP — no IP configuration needed
+
+## Enclosure
+
+The `models/` directory contains 3D-printable STL files (handle, star front/back, full assembly) and the OpenSCAD source.
 
 ## Requirements
 
 - Go 1.24+
 - [CodeCell C6](https://microbots.io/products/codecell-c6) with the [CodeCell Arduino library](https://github.com/microbotsio/CodeCell)
+- [arduino-cli](https://arduino.github.io/arduino-cli/) (for firmware compilation and upload)
+- Python 3 (used by the board selection script)

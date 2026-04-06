@@ -46,19 +46,23 @@ Each reading contains:
 ## Tools
 
 ```sh
+make play       # launch the app (game selector + games)
 make sim        # send fake IMU data over UDP (no hardware needed)
 make monitor    # display live IMU readings in terminal
-make view       # launch 3D orientation viewer (requires wand hardware)
 make test       # run all Go tests
 make compile    # compile firmware
 make upload     # compile + flash firmware (interactive board selection)
 ```
 
-Test without hardware by running `make sim` in one terminal and `make monitor` in another.
+Test without hardware by running `make sim` in one terminal and `make play` in another.
 
-### 3D Viewer
+### Games
 
-`cmd/wandview` renders an inward-facing color sphere driven by the wand's orientation, with an accelerometer waveform overlay. It uses a lightweight 3D engine included in `pkg/` (SDL3 GPU API, cross-platform Metal/Vulkan/D3D12).
+`make play` launches a single app with an in-app game selector. The wand connects once and is shared across all games. Current games:
+
+- **Color Sphere** — an inward-facing color sphere driven by the wand's orientation, with an accelerometer-driven particle river. A simple cause-and-effect toy for babies 10 months+.
+
+The app uses a lightweight 3D engine included in `pkg/` (SDL3 GPU API, cross-platform Metal/Vulkan/D3D12).
 
 ## Hardware Setup
 

@@ -1,2 +1,3 @@
 firmware/wand_controller/config.h
 .DS_Store
+/cmd/wandview/wandview

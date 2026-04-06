@@ -1,0 +1,22 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct main0_out
+{
+    float2 uv [[user(locn0)]];
+    float4 gl_Position [[position]];
+};
+
+vertex main0_out main0(uint vertex_id [[vertex_id]])
+{
+    main0_out out = {};
+    float2 pos;
+    pos.x = float(vertex_id == 1u) * 4.0 - 1.0;
+    pos.y = float(vertex_id == 2u) * 4.0 - 1.0;
+    out.uv = pos * 0.5 + 0.5;
+    out.uv.y = 1.0 - out.uv.y;
+    out.gl_Position = float4(pos, 0.0, 1.0);
+    return out;
+}

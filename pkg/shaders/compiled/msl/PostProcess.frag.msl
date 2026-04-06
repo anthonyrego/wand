@@ -1,0 +1,59 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct PostProcessUniforms
+{
+    float4 resolution;  // xy = offscreen size
+    float4 dither;      // x = strength (0=off, 1=full), y = color levels
+    float4 tint;        // rgb = per-channel multiplier
+};
+
+struct main0_out
+{
+    float4 color [[color(0)]];
+};
+
+struct main0_in
+{
+    float2 uv [[user(locn0)]];
+};
+
+fragment main0_out main0(main0_in in [[stage_in]],
+                         texture2d<float> sceneTexture [[texture(0)]],
+                         sampler sceneSampler [[sampler(0)]],
+                         constant PostProcessUniforms& uniforms [[buffer(0)]])
+{
+    main0_out out = {};
+
+    float4 color = sceneTexture.sample(sceneSampler, in.uv);
+
+    const float bayerMatrix[16] = {
+         0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+        12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+         3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+        15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+    };
+
+    float ditherStrength = uniforms.dither.x;
+    float levels = uniforms.dither.y;
+
+    float2 pixelPos = in.uv * uniforms.resolution.xy;
+    int x = int(pixelPos.x) % 4;
+    int y = int(pixelPos.y) % 4;
+    float threshold = bayerMatrix[y * 4 + x];
+
+    if (ditherStrength > 0.0 && levels > 0.0)
+    {
+        color.rgb = floor(color.rgb * levels + threshold * ditherStrength) / levels;
+    }
+
+    color.r = clamp(color.r * uniforms.tint.x, 0.0, 1.0);
+    color.g = clamp(color.g * uniforms.tint.y, 0.0, 1.0);
+    color.b = clamp(color.b * uniforms.tint.z, 0.0, 1.0);
+    color.a = 1.0;
+
+    out.color = color;
+    return out;
+}

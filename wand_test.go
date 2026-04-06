@@ -1,6 +1,7 @@
 package wand
 
 import (
+	"math"
 	"net"
 	"testing"
 	"time"
@@ -152,6 +153,79 @@ func TestListenerDiscovery(t *testing.T) {
 	got := l.State()
 	if got.Roll != want.Roll {
 		t.Errorf("Roll = %v, want %v", got.Roll, want.Roll)
+	}
+}
+
+func TestListenerSmoothing(t *testing.T) {
+	l := New(0)
+	l.SetSmoothing(0.9)
+	if err := l.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer l.Stop()
+
+	addr := l.conn.LocalAddr().(*net.UDPAddr)
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		t.Fatalf("DialUDP: %v", err)
+	}
+	defer conn.Close()
+
+	// First packet: yaw=0. Sets the initial quaternion.
+	conn.Write(EncodePacket(State{Yaw: 0, Seq: 1}))
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if l.PacketsReceived() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Second packet: yaw=90. With smoothing=0.5, SLERP t=0.5 → yaw should be ~45.
+	conn.Write(EncodePacket(State{Yaw: 90, Seq: 2}))
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if l.PacketsReceived() > 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	got := l.State()
+	if math.Abs(float64(got.Yaw-45)) > 1.0 {
+		t.Errorf("smoothed Yaw = %.2f, want ~45", got.Yaw)
+	}
+}
+
+func TestListenerSmoothingZero(t *testing.T) {
+	l := New(0) // default smoothing = 0
+	if err := l.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer l.Stop()
+
+	addr := l.conn.LocalAddr().(*net.UDPAddr)
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		t.Fatalf("DialUDP: %v", err)
+	}
+	defer conn.Close()
+
+	want := State{Roll: 10, Pitch: 20, Yaw: 30, Seq: 1}
+	conn.Write(EncodePacket(want))
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if l.PacketsReceived() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	got := l.State()
+	if got.Roll != want.Roll || got.Pitch != want.Pitch || got.Yaw != want.Yaw {
+		t.Errorf("raw state = (%.2f, %.2f, %.2f), want (%.2f, %.2f, %.2f)",
+			got.Roll, got.Pitch, got.Yaw, want.Roll, want.Pitch, want.Yaw)
 	}
 }
 

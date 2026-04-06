@@ -19,4 +19,4 @@ monitor:
 	go run ./cmd/wandtest
 
 view:
-	cd cmd/wandview && go run .
+	go run ./cmd/wandview

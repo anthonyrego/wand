@@ -10,11 +10,11 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/anthonyrego/construct/pkg/engine"
-	"github.com/anthonyrego/construct/pkg/mesh"
-	"github.com/anthonyrego/construct/pkg/renderer"
-	"github.com/anthonyrego/construct/pkg/settings"
-	"github.com/anthonyrego/construct/pkg/ui"
+	"github.com/anthonyrego/wand/pkg/engine"
+	"github.com/anthonyrego/wand/pkg/mesh"
+	"github.com/anthonyrego/wand/pkg/renderer"
+	"github.com/anthonyrego/wand/pkg/settings"
+	"github.com/anthonyrego/wand/pkg/ui"
 
 	"github.com/anthonyrego/wand"
 )

@@ -58,7 +58,7 @@ Test without hardware by running `make sim` in one terminal and `make monitor` i
 
 ### 3D Viewer
 
-`cmd/wandview` renders an inward-facing color sphere driven by the wand's orientation, with an accelerometer waveform overlay. It uses the [Construct](https://github.com/anthonyrego/construct) engine and lives in its own Go module to keep the root wand package dependency-free.
+`cmd/wandview` renders an inward-facing color sphere driven by the wand's orientation, with an accelerometer waveform overlay. It uses a lightweight 3D engine included in `pkg/` (SDL3 GPU API, cross-platform Metal/Vulkan/D3D12).
 
 ## Hardware Setup
 

@@ -2,6 +2,7 @@ package wand
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"sync/atomic"
 	"time"
@@ -24,6 +25,10 @@ type Listener struct {
 	discoveriesReceived atomic.Uint64
 
 	lastAckSent atomic.Int64 // unix nano of last ack sent
+
+	smoothing atomic.Uint32 // math.Float32bits of factor [0,1]
+	prevQuat  quat          // only accessed by readLoop
+	hasQuat   bool          // only accessed by readLoop
 }
 
 // New creates a Listener that will bind to the given UDP port.
@@ -91,6 +96,23 @@ func (l *Listener) PacketsDropped() uint64 {
 	return l.packetsDropped.Load()
 }
 
+// SetSmoothing configures orientation smoothing. Factor 0 means no smoothing
+// (raw sensor data). Factor 1 means maximum smoothing. Values are clamped to [0, 1].
+func (l *Listener) SetSmoothing(factor float32) {
+	if factor < 0 {
+		factor = 0
+	}
+	if factor > 1 {
+		factor = 1
+	}
+	l.smoothing.Store(math.Float32bits(factor))
+}
+
+// Smoothing returns the current smoothing factor.
+func (l *Listener) Smoothing() float32 {
+	return math.Float32frombits(l.smoothing.Load())
+}
+
 // DiscoveriesReceived returns the total number of discovery packets received.
 func (l *Listener) DiscoveriesReceived() uint64 {
 	return l.discoveriesReceived.Load()
@@ -131,6 +153,18 @@ func (l *Listener) readLoop() {
 			if err != nil {
 				l.packetsDropped.Add(1)
 				continue
+			}
+
+			// Apply quaternion SLERP smoothing to orientation.
+			if factor := math.Float32frombits(l.smoothing.Load()); factor > 0 {
+				cur := eulerToQuat(state.Roll, state.Pitch, state.Yaw)
+				if !l.hasQuat {
+					l.prevQuat = cur
+					l.hasQuat = true
+				}
+				smoothed := l.prevQuat.slerp(cur, 1-factor)
+				l.prevQuat = smoothed
+				state.Roll, state.Pitch, state.Yaw = smoothed.toEuler()
 			}
 
 			now := time.Now()

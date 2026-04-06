@@ -1,7 +1,7 @@
 FQBN   := esp32:esp32:esp32c6
 SKETCH := firmware/wand_controller
 
-.PHONY: compile upload test sim monitor view
+.PHONY: compile upload test sim monitor play
 
 compile:
 	arduino-cli compile --fqbn $(FQBN) $(SKETCH)
@@ -18,5 +18,5 @@ sim:
 monitor:
 	go run ./cmd/wandtest
 
-view:
-	go run ./cmd/wandview
+play:
+	go run ./cmd/play

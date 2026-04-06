@@ -27,6 +27,7 @@ const (
 	ActionNone Action = iota
 	ActionQuit
 	ActionApplySettings
+	ActionChangeGame
 )
 
 // textEntry holds white (selected) and gray (unselected) variants of a text mesh.
@@ -66,8 +67,8 @@ type PauseMenu struct {
 	title textEntry // "PAUSED" (white only)
 	arrow textEntry // ">" (white only)
 
-	// Main menu: resume(0), settings(1), quit(2)
-	mainItems [3]textEntry
+	// Main menu: resume(0), settings(1), change game(2), quit(3)
+	mainItems [4]textEntry
 
 	// Settings
 	settingsTitle textEntry   // "SETTINGS" (white only)
@@ -173,7 +174,8 @@ func NewPauseMenu(r *renderer.Renderer, pixelScale int, resolutions []window.Res
 
 	p.mainItems[0], _ = newEntry(r, "RESUME", ps)
 	p.mainItems[1], _ = newEntry(r, "SETTINGS", ps)
-	p.mainItems[2], _ = newEntry(r, "QUIT", ps)
+	p.mainItems[2], _ = newEntry(r, "CHANGE GAME", ps)
+	p.mainItems[3], _ = newEntry(r, "QUIT", ps)
 
 	p.settingsTitle, _ = newWhiteOnly(r, "SETTINGS", ps)
 	p.fsLabel, _ = newEntry(r, "FULLSCREEN", ps)
@@ -296,12 +298,12 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 		if inp.IsKeyPressed(sdl.K_UP) {
 			p.selIndex--
 			if p.selIndex < 0 {
-				p.selIndex = 2
+				p.selIndex = 3
 			}
 		}
 		if inp.IsKeyPressed(sdl.K_DOWN) {
 			p.selIndex++
-			if p.selIndex > 2 {
+			if p.selIndex > 3 {
 				p.selIndex = 0
 			}
 		}
@@ -318,7 +320,10 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 				p.pendingPS = p.appliedPS
 				p.pendingRD = p.appliedRD
 				p.dirty = false
-			case 2: // Quit
+			case 2: // Change Game
+				p.state = Hidden
+				return ActionChangeGame
+			case 3: // Quit
 				return ActionQuit
 			}
 		}

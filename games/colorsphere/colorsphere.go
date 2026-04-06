@@ -1,22 +1,18 @@
-package main
+package colorsphere
 
 import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
 
-	"github.com/Zyko0/go-sdl3/bin/binsdl"
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
+	"github.com/anthonyrego/wand"
 	"github.com/anthonyrego/wand/pkg/engine"
 	"github.com/anthonyrego/wand/pkg/mesh"
 	"github.com/anthonyrego/wand/pkg/renderer"
-	"github.com/anthonyrego/wand/pkg/settings"
 	"github.com/anthonyrego/wand/pkg/ui"
-
-	"github.com/anthonyrego/wand"
 )
 
 const numSamples = 300
@@ -51,7 +47,7 @@ type riverParticle struct {
 	displY     float32
 }
 
-type WandViewGame struct {
+type Game struct {
 	wand     *wand.Listener
 	pause    *ui.PauseMenu
 	rotation mgl32.Mat4
@@ -66,35 +62,21 @@ type WandViewGame struct {
 	samples  [numSamples]float32
 	writePos int
 	filled   bool
+
+	wantsChange bool
 }
 
-func main() {
-	err := sdl.LoadLibrary(sdl.Path())
-	if err != nil {
-		fmt.Println("Loading embedded SDL3 library...")
-		defer binsdl.Load().Unload()
-	}
-
-	if err := sdl.Init(sdl.INIT_VIDEO); err != nil {
-		panic("failed to initialize SDL: " + err.Error())
-	}
-	defer sdl.Quit()
-
-	ds := settings.Default()
-
-	e, err := engine.New("Wand View", ds)
-	if err != nil {
-		panic(err)
-	}
-	defer e.Destroy()
-
-	if err := e.Run(&WandViewGame{}); err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
-	}
+func New(w *wand.Listener) *Game {
+	return &Game{wand: w}
 }
 
-func (g *WandViewGame) Init(e *engine.Engine) error {
+func (g *Game) WantsChangeGame() bool {
+	return g.wantsChange
+}
+
+func (g *Game) Init(e *engine.Engine) error {
+	g.wantsChange = false
+
 	e.SetMouseMode(false)
 
 	e.Cam.Position = mgl32.Vec3{0, 0, 0}
@@ -107,7 +89,6 @@ func (g *WandViewGame) Init(e *engine.Engine) error {
 		sphereSegments = 24
 	)
 
-	// Colors for each axis direction: +X, -X, +Y, -Y, +Z, -Z
 	type color3 struct{ r, g, b float64 }
 	axisColors := [6]color3{
 		{220, 130, 30},  // +X Orange
@@ -131,14 +112,13 @@ func (g *WandViewGame) Init(e *engine.Engine) error {
 			nx := ringR * math.Sin(theta)
 			nz := ringR * math.Cos(theta)
 
-			// Blend colors by dot product with each axis direction (squared for sharper regions)
 			weights := [6]float64{
-				math.Max(0, nx) * math.Max(0, nx),   // +X
-				math.Max(0, -nx) * math.Max(0, -nx), // -X
-				math.Max(0, ny) * math.Max(0, ny),   // +Y
-				math.Max(0, -ny) * math.Max(0, -ny), // -Y
-				math.Max(0, nz) * math.Max(0, nz),   // +Z
-				math.Max(0, -nz) * math.Max(0, -nz), // -Z
+				math.Max(0, nx) * math.Max(0, nx),
+				math.Max(0, -nx) * math.Max(0, -nx),
+				math.Max(0, ny) * math.Max(0, ny),
+				math.Max(0, -ny) * math.Max(0, -ny),
+				math.Max(0, nz) * math.Max(0, nz),
+				math.Max(0, -nz) * math.Max(0, -nz),
 			}
 			var totalW float64
 			for _, w := range weights {
@@ -168,7 +148,6 @@ func (g *WandViewGame) Init(e *engine.Engine) error {
 			curr := uint16(ring*(sphereSegments+1) + seg)
 			next := curr + uint16(sphereSegments+1)
 
-			// Inward-facing winding (same as sky dome)
 			sphereIdxs = append(sphereIdxs, curr, next, curr+1)
 			sphereIdxs = append(sphereIdxs, curr+1, next, next+1)
 		}
@@ -183,13 +162,6 @@ func (g *WandViewGame) Init(e *engine.Engine) error {
 		return fmt.Errorf("sphere index buffer: %w", err)
 	}
 	g.tunnel = &mesh.Mesh{VertexBuffer: vb, IndexBuffer: ib, IndexCount: uint32(len(sphereIdxs))}
-
-	// Wand listener
-	g.wand = wand.New(9999)
-	g.wand.SetSmoothing(0.5)
-	if err := g.wand.Start(); err != nil {
-		return fmt.Errorf("wand: %w", err)
-	}
 
 	// Pause menu
 	resolutions := e.Win.DisplayModes()
@@ -217,7 +189,7 @@ func (g *WandViewGame) Init(e *engine.Engine) error {
 	}
 	g.pause.SetAppliedState(e.Win.IsFullscreen(), startResIdx, startPSIdx, startRDIdx)
 
-	// Lighting — high ambient so all tunnel faces are vivid
+	// Lighting
 	e.LightUniforms.AmbientColor = mgl32.Vec4{0.8, 0.8, 0.8, 1.0}
 	e.LightUniforms.SunDirection = mgl32.Vec4{0, 0, -1, 0}
 	e.LightUniforms.SunColor = mgl32.Vec4{1.0, 1.0, 1.0, 0.2}
@@ -239,7 +211,7 @@ func (g *WandViewGame) Init(e *engine.Engine) error {
 	return nil
 }
 
-func (g *WandViewGame) Update(e *engine.Engine, dt float32) bool {
+func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	action := g.pause.HandleInput(e.Input)
 	switch action {
 	case ui.ActionQuit:
@@ -251,6 +223,8 @@ func (g *WandViewGame) Update(e *engine.Engine, dt float32) bool {
 		rd := g.pause.PendingRenderDistance()
 		e.ApplyDisplaySettings(fs, w, h, ps, rd)
 		g.pause.ConfirmApply()
+	case ui.ActionChangeGame:
+		g.wantsChange = true
 	}
 
 	if !g.pause.IsActive() {
@@ -263,7 +237,6 @@ func (g *WandViewGame) Update(e *engine.Engine, dt float32) bool {
 			mgl32.HomogRotate3DX(pitch)).Mul4(
 			mgl32.HomogRotate3DZ(roll))
 
-		// Sample acceleration magnitude into ring buffer
 		mag := float32(math.Sqrt(float64(s.AccelX*s.AccelX + s.AccelY*s.AccelY + s.AccelZ*s.AccelZ)))
 		g.samples[g.writePos] = mag
 		g.writePos++
@@ -272,7 +245,6 @@ func (g *WandViewGame) Update(e *engine.Engine, dt float32) bool {
 			g.filled = true
 		}
 
-		// Update particle river
 		alpha := float32(1.0) - float32(math.Exp(float64(-lerpFactor*dt)))
 		for i := range g.particles {
 			p := &g.particles[i]
@@ -289,8 +261,7 @@ func (g *WandViewGame) Update(e *engine.Engine, dt float32) bool {
 	return true
 }
 
-func (g *WandViewGame) Render(e *engine.Engine, frame renderer.RenderFrame) {
-	// Draw tunnel (rotates with wand)
+func (g *Game) Render(e *engine.Engine, frame renderer.RenderFrame) {
 	tunnelModel := g.rotation
 	tunnelMVP := frame.ViewProj.Mul4(tunnelModel)
 	e.Rend.DrawLit(frame.CmdBuf, frame.ScenePass, renderer.LitDrawCall{
@@ -302,11 +273,10 @@ func (g *WandViewGame) Render(e *engine.Engine, frame renderer.RenderFrame) {
 		NoFog:        true,
 	})
 
-	// Draw particle river
 	g.renderParticleRiver(e, frame)
 }
 
-func (g *WandViewGame) renderParticleRiver(e *engine.Engine, frame renderer.RenderFrame) {
+func (g *Game) renderParticleRiver(e *engine.Engine, frame renderer.RenderFrame) {
 	if g.riverVB != nil {
 		e.Rend.ReleaseBuffer(g.riverVB)
 		g.riverVB = nil
@@ -384,14 +354,13 @@ func (g *WandViewGame) renderParticleRiver(e *engine.Engine, frame renderer.Rend
 	})
 }
 
-func (g *WandViewGame) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *sdl.GPUTexture) {
+func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *sdl.GPUTexture) {
 	if g.pause.IsActive() {
 		g.pause.Render(e.Rend, cmdBuf, target, e.Win.Width(), e.Win.Height())
 	}
 }
 
-func (g *WandViewGame) Destroy(e *engine.Engine) {
-	g.wand.Stop()
+func (g *Game) Destroy(e *engine.Engine) {
 	g.pause.Destroy(e.Rend)
 	g.tunnel.Destroy(e.Rend)
 	if g.riverVB != nil {
@@ -402,7 +371,7 @@ func (g *WandViewGame) Destroy(e *engine.Engine) {
 	}
 }
 
-func (g *WandViewGame) spawnParticle(p *riverParticle, randomX bool) {
+func (g *Game) spawnParticle(p *riverParticle, randomX bool) {
 	if randomX {
 		p.X = riverXMin + rand.Float32()*(riverXMax-riverXMin)
 	} else {
@@ -413,14 +382,13 @@ func (g *WandViewGame) spawnParticle(p *riverParticle, randomX bool) {
 	p.Y = p.BaseY
 	p.VelX = flowSpeedMin + rand.Float32()*(flowSpeedMax-flowSpeedMin)
 
-	// Closer particles (Z near riverZMin/-2) are bigger and brighter
-	depthT := (p.Z - riverZMax) / (riverZMin - riverZMax) // 0=far, 1=near
+	depthT := (p.Z - riverZMax) / (riverZMin - riverZMax)
 	p.Size = sizeMin + depthT*(sizeMax-sizeMin) + rand.Float32()*0.005
 	p.Brightness = uint8(100 + depthT*155)
 	p.displY = 0
 }
 
-func (g *WandViewGame) sampleWaveAtX(x float32) float32 {
+func (g *Game) sampleWaveAtX(x float32) float32 {
 	sampleCount := g.writePos
 	if g.filled {
 		sampleCount = numSamples
@@ -429,7 +397,6 @@ func (g *WandViewGame) sampleWaveAtX(x float32) float32 {
 		return 0
 	}
 
-	// Map X to [0,1]: left=newest, right=oldest
 	t := (x - riverXMin) / (riverXMax - riverXMin)
 	if t < 0 {
 		t = 0
@@ -446,7 +413,6 @@ func (g *WandViewGame) sampleWaveAtX(x float32) float32 {
 	}
 	frac := age - float32(idx0)
 
-	// Ring buffer: newest at writePos-1, going backward
 	ri0 := (g.writePos - 1 - idx0 + numSamples) % numSamples
 	ri1 := (g.writePos - 1 - idx1 + numSamples) % numSamples
 

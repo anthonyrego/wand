@@ -41,7 +41,7 @@ func (s *Selector) Init(e *engine.Engine) error {
 
 	s.chosen = -1
 	s.selected = 0
-	s.ps = float32(e.PixelScale)
+	s.ps = float32(ui.FontScale)
 
 	r := e.Rend
 

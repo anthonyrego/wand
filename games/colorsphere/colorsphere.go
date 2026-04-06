@@ -165,18 +165,11 @@ func (g *Game) Init(e *engine.Engine) error {
 
 	// Pause menu
 	resolutions := e.Win.DisplayModes()
-	g.pause = ui.NewPauseMenu(e.Rend, e.PixelScale, resolutions)
+	g.pause = ui.NewPauseMenu(e.Rend, resolutions)
 	startResIdx := 0
 	for i, res := range resolutions {
 		if res.W == e.Win.Width() && res.H == e.Win.Height() {
 			startResIdx = i
-			break
-		}
-	}
-	startPSIdx := 0
-	for i, v := range ui.PixelScales {
-		if v == e.PixelScale {
-			startPSIdx = i
 			break
 		}
 	}
@@ -187,7 +180,7 @@ func (g *Game) Init(e *engine.Engine) error {
 			break
 		}
 	}
-	g.pause.SetAppliedState(e.Win.IsFullscreen(), startResIdx, startPSIdx, startRDIdx)
+	g.pause.SetAppliedState(e.Win.IsFullscreen(), startResIdx, startRDIdx)
 
 	// Lighting
 	e.LightUniforms.AmbientColor = mgl32.Vec4{0.8, 0.8, 0.8, 1.0}
@@ -219,9 +212,8 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	case ui.ActionApplySettings:
 		fs := g.pause.PendingFullscreen()
 		w, h := g.pause.PendingResolution()
-		ps := g.pause.PendingPixelScale()
 		rd := g.pause.PendingRenderDistance()
-		e.ApplyDisplaySettings(fs, w, h, ps, rd)
+		e.ApplyDisplaySettings(fs, w, h, rd)
 		g.pause.ConfirmApply()
 	case ui.ActionChangeGame:
 		g.wantsChange = true

@@ -10,7 +10,6 @@ type Settings struct {
 	WindowWidth    int     `json:"windowWidth"`
 	WindowHeight   int     `json:"windowHeight"`
 	Fullscreen     bool    `json:"fullscreen"`
-	PixelScale     int     `json:"pixelScale"`
 	RenderDistance float32 `json:"renderDistance"`
 }
 
@@ -19,7 +18,6 @@ func Default() Settings {
 		WindowWidth:    1280,
 		WindowHeight:   720,
 		Fullscreen:     false,
-		PixelScale:     4,
 		RenderDistance:  1500,
 	}
 }
@@ -38,9 +36,6 @@ func Load(path string) Settings {
 		d := Default()
 		s.WindowWidth = d.WindowWidth
 		s.WindowHeight = d.WindowHeight
-	}
-	if s.PixelScale <= 0 {
-		s.PixelScale = Default().PixelScale
 	}
 	if s.RenderDistance <= 0 {
 		s.RenderDistance = Default().RenderDistance

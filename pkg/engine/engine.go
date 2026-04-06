@@ -30,8 +30,6 @@ type Engine struct {
 	Cam   *camera.Camera
 	Input *input.Input
 
-	PixelScale int
-
 	// Set by game in Update, used by engine during render.
 	LightUniforms renderer.LightUniforms
 	PostProcess   renderer.PostProcessUniforms
@@ -64,26 +62,16 @@ func New(title string, ds settings.Settings) (*Engine, error) {
 		return nil, fmt.Errorf("renderer: %w", err)
 	}
 
-	pixelScale := ds.PixelScale
-	offW := uint32(win.Width() / pixelScale)
-	offH := uint32(win.Height() / pixelScale)
-	if offW < 1 {
-		offW = 1
-	}
-	if offH < 1 {
-		offH = 1
-	}
-	rend.SetOffscreenResolution(offW, offH)
+	rend.SetOffscreenResolution(uint32(win.Width()), uint32(win.Height()))
 
 	cam := camera.New(float32(win.Width()) / float32(win.Height()))
 	cam.Far = ds.RenderDistance
 
 	return &Engine{
-		Win:        win,
-		Rend:       rend,
-		Cam:        cam,
-		Input:      input.New(),
-		PixelScale: pixelScale,
+		Win:   win,
+		Rend:  rend,
+		Cam:   cam,
+		Input: input.New(),
 	}, nil
 }
 
@@ -175,8 +163,7 @@ func (e *Engine) Run(game Game) error {
 }
 
 // ApplyDisplaySettings updates window, renderer, and camera for new display settings.
-func (e *Engine) ApplyDisplaySettings(fullscreen bool, w, h, pixelScale int, renderDistance float32) {
-	e.PixelScale = pixelScale
+func (e *Engine) ApplyDisplaySettings(fullscreen bool, w, h int, renderDistance float32) {
 	e.Cam.Far = renderDistance
 
 	if err := e.Win.SetFullscreen(fullscreen); err != nil {
@@ -186,16 +173,7 @@ func (e *Engine) ApplyDisplaySettings(fullscreen bool, w, h, pixelScale int, ren
 		e.Win.SetSize(w, h)
 	}
 	e.Cam.AspectRatio = float32(e.Win.Width()) / float32(e.Win.Height())
-
-	newOffW := uint32(e.Win.Width() / pixelScale)
-	newOffH := uint32(e.Win.Height() / pixelScale)
-	if newOffW < 1 {
-		newOffW = 1
-	}
-	if newOffH < 1 {
-		newOffH = 1
-	}
-	e.Rend.SetOffscreenResolution(newOffW, newOffH)
+	e.Rend.SetOffscreenResolution(uint32(e.Win.Width()), uint32(e.Win.Height()))
 }
 
 // SetMouseMode toggles between relative (FPS) and absolute (menu) mouse mode.

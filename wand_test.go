@@ -158,7 +158,7 @@ func TestListenerDiscovery(t *testing.T) {
 
 func TestListenerSmoothing(t *testing.T) {
 	l := New(0)
-	l.SetSmoothing(0.9)
+	l.SetSmoothing(0.5)
 	if err := l.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}

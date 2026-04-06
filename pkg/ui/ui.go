@@ -77,8 +77,6 @@ type PauseMenu struct {
 	fsOff         textEntry   // "OFF"
 	resLabel      textEntry   // "RESOLUTION"
 	resOpts       []textEntry // dynamic from SDL3
-	psLabel       textEntry   // "PIXEL SCALE"
-	psOpts        []textEntry // "1".."6"
 	rdLabel       textEntry   // "DRAW DISTANCE"
 	rdOpts        []textEntry // predefined list
 	apply         textEntry   // "APPLY"
@@ -89,13 +87,11 @@ type PauseMenu struct {
 	// Applied = what the window currently is
 	appliedFS     bool
 	appliedResIdx int
-	appliedPS     int // index into PixelScales
 	appliedRD     int // index into RenderDistances
 
 	// Pending = what user has toggled but not yet applied
 	pendingFS     bool
 	pendingResIdx int
-	pendingPS     int
 	pendingRD     int
 	dirty         bool
 }
@@ -140,11 +136,12 @@ func newWhiteOnly(r *renderer.Renderer, text string, ps float32) (textEntry, err
 	return textEntry{white: w, width: width}, nil
 }
 
-var PixelScales = []int{1, 2, 3, 4, 5, 6}
 var RenderDistances = []int{500, 750, 1000, 1250, 1500, 2000}
 
-func NewPauseMenu(r *renderer.Renderer, pixelScale int, resolutions []window.Resolution) *PauseMenu {
-	ps := float32(pixelScale)
+const FontScale = 4
+
+func NewPauseMenu(r *renderer.Renderer, resolutions []window.Resolution) *PauseMenu {
+	ps := float32(FontScale)
 	p := &PauseMenu{ps: ps, resolutions: resolutions}
 
 	// Overlay: unit quad with semi-transparent black
@@ -191,12 +188,6 @@ func NewPauseMenu(r *renderer.Renderer, pixelScale int, resolutions []window.Res
 		p.resOpts = append(p.resOpts, entry)
 	}
 
-	p.psLabel, _ = newEntry(r, "PIXEL SCALE", ps)
-	for _, v := range PixelScales {
-		entry, _ := newEntry(r, fmt.Sprintf("%d", v), ps)
-		p.psOpts = append(p.psOpts, entry)
-	}
-
 	p.rdLabel, _ = newEntry(r, "DRAW DISTANCE", ps)
 	for _, v := range RenderDistances {
 		entry, _ := newEntry(r, fmt.Sprintf("%d", v), ps)
@@ -211,14 +202,12 @@ func (p *PauseMenu) IsActive() bool {
 }
 
 // SetAppliedState sets the current applied state (call at init).
-func (p *PauseMenu) SetAppliedState(fullscreen bool, resIndex, psIndex, rdIndex int) {
+func (p *PauseMenu) SetAppliedState(fullscreen bool, resIndex, rdIndex int) {
 	p.appliedFS = fullscreen
 	p.appliedResIdx = resIndex
-	p.appliedPS = psIndex
 	p.appliedRD = rdIndex
 	p.pendingFS = fullscreen
 	p.pendingResIdx = resIndex
-	p.pendingPS = psIndex
 	p.pendingRD = rdIndex
 	p.dirty = false
 }
@@ -237,14 +226,6 @@ func (p *PauseMenu) PendingResolution() (w, h int) {
 	return r.W, r.H
 }
 
-// PendingPixelScale returns the pending pixel scale value.
-func (p *PauseMenu) PendingPixelScale() int {
-	if p.pendingPS < 0 || p.pendingPS >= len(PixelScales) {
-		return 4
-	}
-	return PixelScales[p.pendingPS]
-}
-
 // PendingRenderDistance returns the pending render distance value.
 func (p *PauseMenu) PendingRenderDistance() float32 {
 	if p.pendingRD < 0 || p.pendingRD >= len(RenderDistances) {
@@ -257,14 +238,13 @@ func (p *PauseMenu) PendingRenderDistance() float32 {
 func (p *PauseMenu) ConfirmApply() {
 	p.appliedFS = p.pendingFS
 	p.appliedResIdx = p.pendingResIdx
-	p.appliedPS = p.pendingPS
 	p.appliedRD = p.pendingRD
 	p.dirty = false
 }
 
 func (p *PauseMenu) updateDirty() {
 	p.dirty = p.pendingFS != p.appliedFS || p.pendingResIdx != p.appliedResIdx ||
-		p.pendingPS != p.appliedPS || p.pendingRD != p.appliedRD
+		p.pendingRD != p.appliedRD
 }
 
 func (p *PauseMenu) HandleInput(inp *input.Input) Action {
@@ -278,7 +258,6 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 			// Reset pending on back to main
 			p.pendingFS = p.appliedFS
 			p.pendingResIdx = p.appliedResIdx
-			p.pendingPS = p.appliedPS
 			p.pendingRD = p.appliedRD
 			p.dirty = false
 			p.state = Main
@@ -313,11 +292,10 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 				p.state = Hidden
 			case 1: // Settings
 				p.state = Settings
-				p.selIndex = 5 // Start on BACK
+				p.selIndex = 4 // Start on BACK
 				// Copy applied to pending on enter
 				p.pendingFS = p.appliedFS
 				p.pendingResIdx = p.appliedResIdx
-				p.pendingPS = p.appliedPS
 				p.pendingRD = p.appliedRD
 				p.dirty = false
 			case 2: // Change Game
@@ -330,16 +308,16 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 		return ActionNone
 	}
 
-	// Settings (6 items: 0=fullscreen, 1=resolution, 2=pixel scale, 3=draw distance, 4=apply, 5=back)
+	// Settings (5 items: 0=fullscreen, 1=resolution, 2=draw distance, 3=apply, 4=back)
 	if inp.IsKeyPressed(sdl.K_UP) {
 		p.selIndex--
 		if p.selIndex < 0 {
-			p.selIndex = 5
+			p.selIndex = 4
 		}
 	}
 	if inp.IsKeyPressed(sdl.K_DOWN) {
 		p.selIndex++
-		if p.selIndex > 5 {
+		if p.selIndex > 4 {
 			p.selIndex = 0
 		}
 	}
@@ -350,14 +328,13 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 	}
 	if inp.IsKeyPressed(sdl.K_RETURN) {
 		switch p.selIndex {
-		case 4: // Apply
+		case 3: // Apply
 			if p.dirty {
 				return ActionApplySettings
 			}
-		case 5: // Back
+		case 4: // Back
 			p.pendingFS = p.appliedFS
 			p.pendingResIdx = p.appliedResIdx
-			p.pendingPS = p.appliedPS
 			p.pendingRD = p.appliedRD
 			p.dirty = false
 			p.state = Main
@@ -381,25 +358,8 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 			p.updateDirty()
 		}
 	}
-	// Left/Right for pixel scale cycling
-	if p.selIndex == 2 && len(PixelScales) > 0 {
-		if inp.IsKeyPressed(sdl.K_LEFT) {
-			p.pendingPS--
-			if p.pendingPS < 0 {
-				p.pendingPS = len(PixelScales) - 1
-			}
-			p.updateDirty()
-		}
-		if inp.IsKeyPressed(sdl.K_RIGHT) {
-			p.pendingPS++
-			if p.pendingPS >= len(PixelScales) {
-				p.pendingPS = 0
-			}
-			p.updateDirty()
-		}
-	}
 	// Left/Right for render distance cycling
-	if p.selIndex == 3 && len(RenderDistances) > 0 {
+	if p.selIndex == 2 && len(RenderDistances) > 0 {
 		if inp.IsKeyPressed(sdl.K_LEFT) {
 			p.pendingRD--
 			if p.pendingRD < 0 {
@@ -516,28 +476,9 @@ func (p *PauseMenu) Render(r *renderer.Renderer, cmdBuf *sdl.GPUCommandBuffer, s
 			}
 		}
 
-		// Item 2: Pixel Scale
+		// Item 2: Draw Distance
 		{
 			i := 2
-			y := startY + float32(i)*lineH
-			sel := p.selIndex == i
-			psIdx := p.pendingPS
-			if psIdx < 0 || psIdx >= len(p.psOpts) {
-				psIdx = 0
-			}
-			val := &p.psOpts[psIdx]
-			totalW := p.psLabel.width + gap + val.width
-			lx := (sw - totalW) / 2
-			draw(p.psLabel.meshFor(sel), at(lx, y))
-			draw(val.meshFor(sel), at(lx+p.psLabel.width+gap, y))
-			if sel {
-				drawArrow(lx, y)
-			}
-		}
-
-		// Item 3: Draw Distance
-		{
-			i := 3
 			y := startY + float32(i)*lineH
 			sel := p.selIndex == i
 			rdIdx := p.pendingRD
@@ -554,9 +495,9 @@ func (p *PauseMenu) Render(r *renderer.Renderer, cmdBuf *sdl.GPUCommandBuffer, s
 			}
 		}
 
-		// Item 4: Apply
+		// Item 3: Apply
 		{
-			i := 4
+			i := 3
 			y := startY + float32(i)*lineH
 			sel := p.selIndex == i
 			x := (sw - p.apply.width) / 2
@@ -572,9 +513,9 @@ func (p *PauseMenu) Render(r *renderer.Renderer, cmdBuf *sdl.GPUCommandBuffer, s
 			}
 		}
 
-		// Item 5: Back
+		// Item 4: Back
 		{
-			i := 5
+			i := 4
 			y := startY + float32(i)*lineH
 			sel := p.selIndex == i
 			x := (sw - p.back.width) / 2
@@ -602,15 +543,11 @@ func (p *PauseMenu) Destroy(r *renderer.Renderer) {
 	p.fsOn.destroy(r)
 	p.fsOff.destroy(r)
 	p.resLabel.destroy(r)
-	p.psLabel.destroy(r)
 	p.rdLabel.destroy(r)
 	p.apply.destroy(r)
 	p.back.destroy(r)
 	for i := range p.resOpts {
 		p.resOpts[i].destroy(r)
-	}
-	for i := range p.psOpts {
-		p.psOpts[i].destroy(r)
 	}
 	for i := range p.rdOpts {
 		p.rdOpts[i].destroy(r)

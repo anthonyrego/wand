@@ -115,12 +115,15 @@ type Renderer struct {
 	repeatSampler       *sdl.GPUSampler
 	offscreenW          uint32
 	offscreenH          uint32
+	offscreenFormat     sdl.GPUTextureFormat
+	hdr                 bool
 
 	// UI overlay rendering
 	uiPipeline *sdl.GPUGraphicsPipeline
 }
 
 func New(w *window.Window) (*Renderer, error) {
+	r := &Renderer{window: w, offscreenFormat: sdl.GPU_TEXTUREFORMAT_R8G8B8A8_UNORM}
 	device := w.Device()
 
 	// Create shaders
@@ -211,11 +214,8 @@ func New(w *window.Window) (*Renderer, error) {
 		return nil, errors.New("failed to create depth texture: " + err.Error())
 	}
 
-	r := &Renderer{
-		window:       w,
-		pipeline:     pipeline,
-		depthTexture: depthTexture,
-	}
+	r.pipeline = pipeline
+	r.depthTexture = depthTexture
 
 	// Create lit rendering resources
 	if err := r.initLitPipeline(); err != nil {
@@ -251,7 +251,7 @@ func (r *Renderer) initLitPipeline() error {
 	litPipeline, err := device.CreateGraphicsPipeline(&sdl.GPUGraphicsPipelineCreateInfo{
 		TargetInfo: sdl.GPUGraphicsPipelineTargetInfo{
 			ColorTargetDescriptions: []sdl.GPUColorTargetDescription{
-				{Format: sdl.GPU_TEXTUREFORMAT_R8G8B8A8_UNORM},
+				{Format: r.offscreenFormat},
 			},
 			HasDepthStencilTarget: true,
 			DepthStencilFormat:    sdl.GPU_TEXTUREFORMAT_D32_FLOAT,
@@ -293,7 +293,7 @@ func (r *Renderer) initLitPipeline() error {
 	litNoDepthWritePipeline, err := device.CreateGraphicsPipeline(&sdl.GPUGraphicsPipelineCreateInfo{
 		TargetInfo: sdl.GPUGraphicsPipelineTargetInfo{
 			ColorTargetDescriptions: []sdl.GPUColorTargetDescription{
-				{Format: sdl.GPU_TEXTUREFORMAT_R8G8B8A8_UNORM},
+				{Format: r.offscreenFormat},
 			},
 			HasDepthStencilTarget: true,
 			DepthStencilFormat:    sdl.GPU_TEXTUREFORMAT_D32_FLOAT,
@@ -335,7 +335,7 @@ func (r *Renderer) initLitPipeline() error {
 	litDepthBiasPipeline, err := device.CreateGraphicsPipeline(&sdl.GPUGraphicsPipelineCreateInfo{
 		TargetInfo: sdl.GPUGraphicsPipelineTargetInfo{
 			ColorTargetDescriptions: []sdl.GPUColorTargetDescription{
-				{Format: sdl.GPU_TEXTUREFORMAT_R8G8B8A8_UNORM},
+				{Format: r.offscreenFormat},
 			},
 			HasDepthStencilTarget: true,
 			DepthStencilFormat:    sdl.GPU_TEXTUREFORMAT_D32_FLOAT,
@@ -377,36 +377,9 @@ func (r *Renderer) initLitPipeline() error {
 	r.litDepthBiasPipeline = litDepthBiasPipeline
 
 	// --- Post-process pipeline ---
-	ppVert, err := shaders.LoadShader(device, "PostProcess.vert", 0, 0, 0, 0)
-	if err != nil {
-		return errors.New("failed to create post-process vertex shader: " + err.Error())
+	if err := r.initPostProcessPipeline(); err != nil {
+		return err
 	}
-	defer device.ReleaseShader(ppVert)
-
-	ppFrag, err := shaders.LoadShader(device, "PostProcess.frag", 1, 1, 0, 0)
-	if err != nil {
-		return errors.New("failed to create post-process fragment shader: " + err.Error())
-	}
-	defer device.ReleaseShader(ppFrag)
-
-	postProcessPipeline, err := device.CreateGraphicsPipeline(&sdl.GPUGraphicsPipelineCreateInfo{
-		TargetInfo: sdl.GPUGraphicsPipelineTargetInfo{
-			ColorTargetDescriptions: []sdl.GPUColorTargetDescription{
-				{Format: device.SwapchainTextureFormat(r.window.Handle())},
-			},
-		},
-		RasterizerState: sdl.GPURasterizerState{
-			FillMode: sdl.GPU_FILLMODE_FILL,
-			CullMode: sdl.GPU_CULLMODE_NONE,
-		},
-		PrimitiveType:  sdl.GPU_PRIMITIVETYPE_TRIANGLELIST,
-		VertexShader:   ppVert,
-		FragmentShader: ppFrag,
-	})
-	if err != nil {
-		return errors.New("failed to create post-process pipeline: " + err.Error())
-	}
-	r.postProcessPipeline = postProcessPipeline
 
 	// --- Offscreen textures ---
 	if err := r.createOffscreenTargets(defaultOffscreenWidth, defaultOffscreenHeight); err != nil {
@@ -452,12 +425,105 @@ func (r *Renderer) initLitPipeline() error {
 	return nil
 }
 
+func (r *Renderer) initPostProcessPipeline() error {
+	device := r.window.Device()
+
+	ppVert, err := shaders.LoadShader(device, "PostProcess.vert", 0, 0, 0, 0)
+	if err != nil {
+		return errors.New("failed to create post-process vertex shader: " + err.Error())
+	}
+	defer device.ReleaseShader(ppVert)
+
+	ppFrag, err := shaders.LoadShader(device, "PostProcess.frag", 1, 1, 0, 0)
+	if err != nil {
+		return errors.New("failed to create post-process fragment shader: " + err.Error())
+	}
+	defer device.ReleaseShader(ppFrag)
+
+	pipeline, err := device.CreateGraphicsPipeline(&sdl.GPUGraphicsPipelineCreateInfo{
+		TargetInfo: sdl.GPUGraphicsPipelineTargetInfo{
+			ColorTargetDescriptions: []sdl.GPUColorTargetDescription{
+				{Format: device.SwapchainTextureFormat(r.window.Handle())},
+			},
+		},
+		RasterizerState: sdl.GPURasterizerState{
+			FillMode: sdl.GPU_FILLMODE_FILL,
+			CullMode: sdl.GPU_CULLMODE_NONE,
+		},
+		PrimitiveType:  sdl.GPU_PRIMITIVETYPE_TRIANGLELIST,
+		VertexShader:   ppVert,
+		FragmentShader: ppFrag,
+	})
+	if err != nil {
+		return errors.New("failed to create post-process pipeline: " + err.Error())
+	}
+	r.postProcessPipeline = pipeline
+	return nil
+}
+
+// SetHDR switches between HDR and SDR rendering by recreating pipelines and offscreen textures.
+func (r *Renderer) SetHDR(enabled bool) error {
+	r.hdr = enabled
+	if enabled {
+		r.offscreenFormat = sdl.GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT
+	} else {
+		r.offscreenFormat = sdl.GPU_TEXTUREFORMAT_R8G8B8A8_UNORM
+	}
+
+	device := r.window.Device()
+	device.WaitForIdle()
+
+	// Release old pipelines
+	if r.litPipeline != nil {
+		device.ReleaseGraphicsPipeline(r.litPipeline)
+		r.litPipeline = nil
+	}
+	if r.litNoDepthWritePipeline != nil {
+		device.ReleaseGraphicsPipeline(r.litNoDepthWritePipeline)
+		r.litNoDepthWritePipeline = nil
+	}
+	if r.litDepthBiasPipeline != nil {
+		device.ReleaseGraphicsPipeline(r.litDepthBiasPipeline)
+		r.litDepthBiasPipeline = nil
+	}
+	if r.postProcessPipeline != nil {
+		device.ReleaseGraphicsPipeline(r.postProcessPipeline)
+		r.postProcessPipeline = nil
+	}
+	if r.uiPipeline != nil {
+		device.ReleaseGraphicsPipeline(r.uiPipeline)
+		r.uiPipeline = nil
+	}
+
+	// Release old offscreen textures
+	if r.offscreenDepth != nil {
+		device.ReleaseTexture(r.offscreenDepth)
+		r.offscreenDepth = nil
+	}
+	if r.offscreenTexture != nil {
+		device.ReleaseTexture(r.offscreenTexture)
+		r.offscreenTexture = nil
+	}
+
+	// Recreate everything with new formats
+	if err := r.initLitPipeline(); err != nil {
+		return err
+	}
+	if err := r.initPostProcessPipeline(); err != nil {
+		return err
+	}
+	if err := r.initUIPipeline(); err != nil {
+		return err
+	}
+	return r.createOffscreenTargets(r.offscreenW, r.offscreenH)
+}
+
 func (r *Renderer) createOffscreenTargets(w, h uint32) error {
 	device := r.window.Device()
 
 	offscreenTexture, err := device.CreateTexture(&sdl.GPUTextureCreateInfo{
 		Type:              sdl.GPU_TEXTURETYPE_2D,
-		Format:            sdl.GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+		Format:            r.offscreenFormat,
 		Width:             w,
 		Height:            h,
 		LayerCountOrDepth: 1,

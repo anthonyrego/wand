@@ -49,9 +49,9 @@ fragment main0_out main0(main0_in in [[stage_in]],
         color.rgb = floor(color.rgb * levels + threshold * ditherStrength) / levels;
     }
 
-    color.r = clamp(color.r * uniforms.tint.x, 0.0, 1.0);
-    color.g = clamp(color.g * uniforms.tint.y, 0.0, 1.0);
-    color.b = clamp(color.b * uniforms.tint.z, 0.0, 1.0);
+    color.r = max(color.r * uniforms.tint.x, 0.0);
+    color.g = max(color.g * uniforms.tint.y, 0.0);
+    color.b = max(color.b * uniforms.tint.z, 0.0);
     color.a = 1.0;
 
     out.color = color;

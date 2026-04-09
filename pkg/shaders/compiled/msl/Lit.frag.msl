@@ -259,6 +259,6 @@ fragment main0_out main0(main0_in in [[stage_in]], constant LightUniforms& light
         result = mix(result, float3(1.0), 0.15 * in.flags.w);
     }
 
-    out.color = float4(clamp(result, 0.0, 1.0), 1.0);
+    out.color = float4(max(result, 0.0), 1.0);
     return out;
 }

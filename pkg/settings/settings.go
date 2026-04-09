@@ -11,6 +11,7 @@ type Settings struct {
 	WindowHeight   int     `json:"windowHeight"`
 	Fullscreen     bool    `json:"fullscreen"`
 	RenderDistance float32 `json:"renderDistance"`
+	HDR            bool    `json:"hdr"`
 }
 
 func Default() Settings {

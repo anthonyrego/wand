@@ -165,7 +165,7 @@ func (g *Game) Init(e *engine.Engine) error {
 
 	// Pause menu
 	resolutions := e.Win.DisplayModes()
-	g.pause = ui.NewPauseMenu(e.Rend, resolutions)
+	g.pause = ui.NewPauseMenu(e.Rend, resolutions, e.Win.SupportsHDR())
 	startResIdx := 0
 	for i, res := range resolutions {
 		if res.W == e.Win.Width() && res.H == e.Win.Height() {
@@ -180,12 +180,18 @@ func (g *Game) Init(e *engine.Engine) error {
 			break
 		}
 	}
-	g.pause.SetAppliedState(e.Win.IsFullscreen(), startResIdx, startRDIdx)
+	g.pause.SetAppliedState(e.Win.IsFullscreen(), startResIdx, startRDIdx, e.Win.HDR())
 
 	// Lighting
-	e.LightUniforms.AmbientColor = mgl32.Vec4{0.8, 0.8, 0.8, 1.0}
-	e.LightUniforms.SunDirection = mgl32.Vec4{0, 0, -1, 0}
-	e.LightUniforms.SunColor = mgl32.Vec4{1.0, 1.0, 1.0, 0.2}
+	if e.Win.HDR() {
+		e.LightUniforms.AmbientColor = mgl32.Vec4{0.3, 0.3, 0.3, 1.0}
+		e.LightUniforms.SunDirection = mgl32.Vec4{0, 0, -1, 0}
+		e.LightUniforms.SunColor = mgl32.Vec4{1.0, 1.0, 1.0, 2.0}
+	} else {
+		e.LightUniforms.AmbientColor = mgl32.Vec4{0.8, 0.8, 0.8, 1.0}
+		e.LightUniforms.SunDirection = mgl32.Vec4{0, 0, -1, 0}
+		e.LightUniforms.SunColor = mgl32.Vec4{1.0, 1.0, 1.0, 0.2}
+	}
 
 	// Post-process
 	e.PostProcess = renderer.PostProcessUniforms{
@@ -213,7 +219,8 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 		fs := g.pause.PendingFullscreen()
 		w, h := g.pause.PendingResolution()
 		rd := g.pause.PendingRenderDistance()
-		e.ApplyDisplaySettings(fs, w, h, rd)
+		hdr := g.pause.PendingHDR()
+		e.ApplyDisplaySettings(fs, w, h, rd, hdr)
 		g.pause.ConfirmApply()
 	case ui.ActionChangeGame:
 		g.wantsChange = true

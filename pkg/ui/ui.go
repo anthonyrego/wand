@@ -79,6 +79,11 @@ type PauseMenu struct {
 	resOpts       []textEntry // dynamic from SDL3
 	rdLabel       textEntry   // "DRAW DISTANCE"
 	rdOpts        []textEntry // predefined list
+	hdrLabel      textEntry   // "HDR"
+	hdrOn         textEntry   // "ON"
+	hdrOff        textEntry   // "OFF"
+	hdrDim        textEntry   // dimmed "OFF" for unsupported
+	hdrSupported  bool
 	apply         textEntry   // "APPLY"
 	back          textEntry   // "BACK"
 
@@ -88,11 +93,13 @@ type PauseMenu struct {
 	appliedFS     bool
 	appliedResIdx int
 	appliedRD     int // index into RenderDistances
+	appliedHDR    bool
 
 	// Pending = what user has toggled but not yet applied
 	pendingFS     bool
 	pendingResIdx int
 	pendingRD     int
+	pendingHDR    bool
 	dirty         bool
 }
 
@@ -140,9 +147,9 @@ var RenderDistances = []int{500, 750, 1000, 1250, 1500, 2000}
 
 const FontScale = 4
 
-func NewPauseMenu(r *renderer.Renderer, resolutions []window.Resolution) *PauseMenu {
+func NewPauseMenu(r *renderer.Renderer, resolutions []window.Resolution, hdrSupported bool) *PauseMenu {
 	ps := float32(FontScale)
-	p := &PauseMenu{ps: ps, resolutions: resolutions}
+	p := &PauseMenu{ps: ps, resolutions: resolutions, hdrSupported: hdrSupported}
 
 	// Overlay: unit quad with semi-transparent black
 	overlayVerts := []renderer.Vertex{
@@ -194,6 +201,12 @@ func NewPauseMenu(r *renderer.Renderer, resolutions []window.Resolution) *PauseM
 		p.rdOpts = append(p.rdOpts, entry)
 	}
 
+	p.hdrLabel, _ = newEntry(r, "HDR", ps)
+	p.hdrOn, _ = newEntry(r, "ON", ps)
+	p.hdrOff, _ = newEntry(r, "OFF", ps)
+	// Dimmed variant for when HDR is not supported
+	p.hdrDim, _ = newEntry(r, "UNSUPPORTED", ps)
+
 	return p
 }
 
@@ -202,13 +215,15 @@ func (p *PauseMenu) IsActive() bool {
 }
 
 // SetAppliedState sets the current applied state (call at init).
-func (p *PauseMenu) SetAppliedState(fullscreen bool, resIndex, rdIndex int) {
+func (p *PauseMenu) SetAppliedState(fullscreen bool, resIndex, rdIndex int, hdr bool) {
 	p.appliedFS = fullscreen
 	p.appliedResIdx = resIndex
 	p.appliedRD = rdIndex
+	p.appliedHDR = hdr
 	p.pendingFS = fullscreen
 	p.pendingResIdx = resIndex
 	p.pendingRD = rdIndex
+	p.pendingHDR = hdr
 	p.dirty = false
 }
 
@@ -226,6 +241,11 @@ func (p *PauseMenu) PendingResolution() (w, h int) {
 	return r.W, r.H
 }
 
+// PendingHDR returns the pending HDR state.
+func (p *PauseMenu) PendingHDR() bool {
+	return p.pendingHDR
+}
+
 // PendingRenderDistance returns the pending render distance value.
 func (p *PauseMenu) PendingRenderDistance() float32 {
 	if p.pendingRD < 0 || p.pendingRD >= len(RenderDistances) {
@@ -239,12 +259,13 @@ func (p *PauseMenu) ConfirmApply() {
 	p.appliedFS = p.pendingFS
 	p.appliedResIdx = p.pendingResIdx
 	p.appliedRD = p.pendingRD
+	p.appliedHDR = p.pendingHDR
 	p.dirty = false
 }
 
 func (p *PauseMenu) updateDirty() {
 	p.dirty = p.pendingFS != p.appliedFS || p.pendingResIdx != p.appliedResIdx ||
-		p.pendingRD != p.appliedRD
+		p.pendingRD != p.appliedRD || p.pendingHDR != p.appliedHDR
 }
 
 func (p *PauseMenu) HandleInput(inp *input.Input) Action {
@@ -259,6 +280,7 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 			p.pendingFS = p.appliedFS
 			p.pendingResIdx = p.appliedResIdx
 			p.pendingRD = p.appliedRD
+			p.pendingHDR = p.appliedHDR
 			p.dirty = false
 			p.state = Main
 			p.selIndex = 1
@@ -292,11 +314,12 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 				p.state = Hidden
 			case 1: // Settings
 				p.state = Settings
-				p.selIndex = 4 // Start on BACK
+				p.selIndex = 5 // Start on BACK
 				// Copy applied to pending on enter
 				p.pendingFS = p.appliedFS
 				p.pendingResIdx = p.appliedResIdx
 				p.pendingRD = p.appliedRD
+				p.pendingHDR = p.appliedHDR
 				p.dirty = false
 			case 2: // Change Game
 				p.state = Hidden
@@ -308,16 +331,16 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 		return ActionNone
 	}
 
-	// Settings (5 items: 0=fullscreen, 1=resolution, 2=draw distance, 3=apply, 4=back)
+	// Settings (6 items: 0=fullscreen, 1=resolution, 2=draw distance, 3=HDR, 4=apply, 5=back)
 	if inp.IsKeyPressed(sdl.K_UP) {
 		p.selIndex--
 		if p.selIndex < 0 {
-			p.selIndex = 4
+			p.selIndex = 5
 		}
 	}
 	if inp.IsKeyPressed(sdl.K_DOWN) {
 		p.selIndex++
-		if p.selIndex > 4 {
+		if p.selIndex > 5 {
 			p.selIndex = 0
 		}
 	}
@@ -328,14 +351,15 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 	}
 	if inp.IsKeyPressed(sdl.K_RETURN) {
 		switch p.selIndex {
-		case 3: // Apply
+		case 4: // Apply
 			if p.dirty {
 				return ActionApplySettings
 			}
-		case 4: // Back
+		case 5: // Back
 			p.pendingFS = p.appliedFS
 			p.pendingResIdx = p.appliedResIdx
 			p.pendingRD = p.appliedRD
+			p.pendingHDR = p.appliedHDR
 			p.dirty = false
 			p.state = Main
 			p.selIndex = 1
@@ -374,6 +398,11 @@ func (p *PauseMenu) HandleInput(inp *input.Input) Action {
 			}
 			p.updateDirty()
 		}
+	}
+	// Left/Right toggles HDR on item 3 (only if supported)
+	if p.selIndex == 3 && p.hdrSupported && (inp.IsKeyPressed(sdl.K_LEFT) || inp.IsKeyPressed(sdl.K_RIGHT) || inp.IsKeyPressed(sdl.K_RETURN)) {
+		p.pendingHDR = !p.pendingHDR
+		p.updateDirty()
 	}
 
 	return ActionNone
@@ -495,9 +524,37 @@ func (p *PauseMenu) Render(r *renderer.Renderer, cmdBuf *sdl.GPUCommandBuffer, s
 			}
 		}
 
-		// Item 3: Apply
+		// Item 3: HDR
 		{
 			i := 3
+			y := startY + float32(i)*lineH
+			sel := p.selIndex == i
+			if p.hdrSupported {
+				val := &p.hdrOff
+				if p.pendingHDR {
+					val = &p.hdrOn
+				}
+				totalW := p.hdrLabel.width + gap + val.width
+				lx := (sw - totalW) / 2
+				draw(p.hdrLabel.meshFor(sel), at(lx, y))
+				draw(val.meshFor(sel), at(lx+p.hdrLabel.width+gap, y))
+				if sel {
+					drawArrow(lx, y)
+				}
+			} else {
+				totalW := p.hdrLabel.width + gap + p.hdrDim.width
+				lx := (sw - totalW) / 2
+				draw(p.hdrLabel.gray, at(lx, y))
+				draw(p.hdrDim.gray, at(lx+p.hdrLabel.width+gap, y))
+				if sel {
+					drawArrow(lx, y)
+				}
+			}
+		}
+
+		// Item 4: Apply
+		{
+			i := 4
 			y := startY + float32(i)*lineH
 			sel := p.selIndex == i
 			x := (sw - p.apply.width) / 2
@@ -513,9 +570,9 @@ func (p *PauseMenu) Render(r *renderer.Renderer, cmdBuf *sdl.GPUCommandBuffer, s
 			}
 		}
 
-		// Item 4: Back
+		// Item 5: Back
 		{
-			i := 4
+			i := 5
 			y := startY + float32(i)*lineH
 			sel := p.selIndex == i
 			x := (sw - p.back.width) / 2
@@ -552,4 +609,8 @@ func (p *PauseMenu) Destroy(r *renderer.Renderer) {
 	for i := range p.rdOpts {
 		p.rdOpts[i].destroy(r)
 	}
+	p.hdrLabel.destroy(r)
+	p.hdrOn.destroy(r)
+	p.hdrOff.destroy(r)
+	p.hdrDim.destroy(r)
 }

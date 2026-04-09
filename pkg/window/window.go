@@ -2,6 +2,7 @@ package window
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/Zyko0/go-sdl3/sdl"
@@ -18,6 +19,7 @@ type Window struct {
 	height         int
 	title          string
 	fullscreen     bool
+	hdr            bool
 	windowedWidth  int
 	windowedHeight int
 }
@@ -26,6 +28,7 @@ type Config struct {
 	Title  string
 	Width  int
 	Height int
+	HDR    bool
 }
 
 func New(cfg Config) (*Window, error) {
@@ -51,7 +54,7 @@ func New(cfg Config) (*Window, error) {
 		return nil, errors.New("failed to claim window: " + err.Error())
 	}
 
-	return &Window{
+	w := &Window{
 		handle:         handle,
 		device:         device,
 		width:          cfg.Width,
@@ -59,7 +62,16 @@ func New(cfg Config) (*Window, error) {
 		title:          cfg.Title,
 		windowedWidth:  cfg.Width,
 		windowedHeight: cfg.Height,
-	}, nil
+	}
+
+	if cfg.HDR {
+		if err := w.SetHDR(true); err != nil {
+			// Non-fatal: fall back to SDR
+			fmt.Println("Warning: could not enable HDR:", err)
+		}
+	}
+
+	return w, nil
 }
 
 func (w *Window) Handle() *sdl.Window {
@@ -172,6 +184,37 @@ func (w *Window) DisplayModes() []Resolution {
 
 func (w *Window) SetRelativeMouseMode(enabled bool) error {
 	return w.handle.SetRelativeMouseMode(enabled)
+}
+
+func (w *Window) HDR() bool {
+	return w.hdr
+}
+
+func (w *Window) SupportsHDR() bool {
+	return w.device.WindowSupportsSwapchainComposition(
+		w.handle, sdl.GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR,
+	)
+}
+
+func (w *Window) SetHDR(enabled bool) error {
+	if enabled {
+		if !w.SupportsHDR() {
+			return fmt.Errorf("HDR extended linear not supported")
+		}
+		if err := w.device.SetSwapchainParameters(
+			w.handle, sdl.GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR, sdl.GPU_PRESENTMODE_VSYNC,
+		); err != nil {
+			return err
+		}
+	} else {
+		if err := w.device.SetSwapchainParameters(
+			w.handle, sdl.GPU_SWAPCHAINCOMPOSITION_SDR, sdl.GPU_PRESENTMODE_VSYNC,
+		); err != nil {
+			return err
+		}
+	}
+	w.hdr = enabled
+	return nil
 }
 
 func (w *Window) Destroy() {

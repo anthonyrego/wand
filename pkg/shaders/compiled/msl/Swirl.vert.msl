@@ -29,7 +29,7 @@ vertex main0_out main0(main0_in in [[stage_in]], constant SwirlVertexUniforms& u
     main0_out out = {};
     float4 worldPos = uniforms.model * float4(in.position, 1.0);
     out.worldPosition = worldPos.xyz;
-    out.worldNormal = normalize((uniforms.model * float4(in.normal, 0.0)).xyz);
+    out.worldNormal = normalize(in.normal);
     out.gl_Position = uniforms.mvp * float4(in.position, 1.0);
     return out;
 }

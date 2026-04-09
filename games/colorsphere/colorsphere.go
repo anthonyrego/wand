@@ -51,6 +51,7 @@ type Game struct {
 	wand     *wand.Listener
 	pause    *ui.PauseMenu
 	rotation mgl32.Mat4
+	time     float32
 
 	tunnel *mesh.Mesh
 
@@ -137,7 +138,7 @@ func (g *Game) Init(e *engine.Engine) error {
 				X:  float32(nx * sphereRadius),
 				Y:  float32(ny * sphereRadius),
 				Z:  float32(nz * sphereRadius),
-				NX: 0, NY: -1, NZ: 0,
+				NX: float32(nx), NY: float32(ny), NZ: float32(nz),
 				R: uint8(cr), G: uint8(cg), B: uint8(cb), A: 255,
 			})
 		}
@@ -226,6 +227,8 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 		g.wantsChange = true
 	}
 
+	g.time += dt
+
 	if !g.pause.IsActive() {
 		s := g.wand.State()
 
@@ -261,18 +264,20 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 }
 
 func (g *Game) Render(e *engine.Engine, frame renderer.RenderFrame) {
+	// Particle river first (uses lit pipeline which is already bound)
+	g.renderParticleRiver(e, frame)
+
+	// Swirl sphere last (switches to swirl pipeline)
 	tunnelModel := g.rotation
 	tunnelMVP := frame.ViewProj.Mul4(tunnelModel)
-	e.Rend.DrawLit(frame.CmdBuf, frame.ScenePass, renderer.LitDrawCall{
+	e.Rend.DrawSwirl(frame.CmdBuf, frame.ScenePass, renderer.SwirlDrawCall{
 		VertexBuffer: g.tunnel.VertexBuffer,
 		IndexBuffer:  g.tunnel.IndexBuffer,
 		IndexCount:   g.tunnel.IndexCount,
 		MVP:          tunnelMVP,
 		Model:        tunnelModel,
-		NoFog:        true,
+		Time:         g.time,
 	})
-
-	g.renderParticleRiver(e, frame)
 }
 
 func (g *Game) renderParticleRiver(e *engine.Engine, frame renderer.RenderFrame) {

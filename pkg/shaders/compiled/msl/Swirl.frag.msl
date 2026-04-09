@@ -1,0 +1,150 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SwirlUniforms
+{
+    float4 time; // x = elapsed seconds
+};
+
+struct main0_out
+{
+    float4 color [[color(0)]];
+};
+
+struct main0_in
+{
+    float3 worldPosition [[user(locn0)]];
+    float3 worldNormal [[user(locn1)]];
+};
+
+// --- 3D noise (no seam on spheres) ---
+
+float hash3(float3 p)
+{
+    p = fract(p * float3(0.1031, 0.1030, 0.0973));
+    p += dot(p, p.yxz + 33.33);
+    return fract((p.x + p.y) * p.z);
+}
+
+float valueNoise3D(float3 p)
+{
+    float3 i = floor(p);
+    float3 f = fract(p);
+    float3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+
+    return mix(
+        mix(mix(hash3(i + float3(0, 0, 0)), hash3(i + float3(1, 0, 0)), u.x),
+            mix(hash3(i + float3(0, 1, 0)), hash3(i + float3(1, 1, 0)), u.x), u.y),
+        mix(mix(hash3(i + float3(0, 0, 1)), hash3(i + float3(1, 0, 1)), u.x),
+            mix(hash3(i + float3(0, 1, 1)), hash3(i + float3(1, 1, 1)), u.x), u.y),
+        u.z);
+}
+
+float fbm3D(float3 p)
+{
+    float value = 0.0;
+    float amplitude = 0.5;
+    float3x3 rot = float3x3(
+        float3( 0.80,  0.60, 0.00),
+        float3(-0.60,  0.80, 0.00),
+        float3( 0.00,  0.00, 1.00)
+    );
+
+    for (int i = 0; i < 6; i++)
+    {
+        value += amplitude * valueNoise3D(p);
+        p = rot * p * 2.0 + float3(100.0);
+        amplitude *= 0.5;
+    }
+    return value;
+}
+
+// --- Nebula color palette ---
+
+float3 nebulaColor(float t)
+{
+    t = fract(t);
+
+    float3 deep   = float3(0.01, 0.01, 0.08);
+    float3 navy   = float3(0.05, 0.03, 0.20);
+    float3 purple = float3(0.30, 0.08, 0.50);
+    float3 pink   = float3(0.65, 0.30, 0.55);
+    float3 gold   = float3(0.95, 0.60, 0.20);
+
+    float3 c = deep;
+    c = mix(c, navy,   smoothstep(0.00, 0.15, t));
+    c = mix(c, purple, smoothstep(0.10, 0.35, t));
+    c = mix(c, pink,   smoothstep(0.30, 0.55, t));
+    c = mix(c, gold,   smoothstep(0.50, 0.70, t));
+    c = mix(c, pink,   smoothstep(0.65, 0.80, t));
+    c = mix(c, navy,   smoothstep(0.75, 0.90, t));
+    c = mix(c, deep,   smoothstep(0.85, 1.00, t));
+
+    return c;
+}
+
+// --- Main ---
+
+fragment main0_out main0(main0_in in [[stage_in]],
+                         constant SwirlUniforms& uniforms [[buffer(0)]])
+{
+    main0_out out = {};
+
+    float time = uniforms.time.x;
+    float3 dir = normalize(in.worldNormal);
+
+    // Sample noise directly in 3D — no spherical UV, no seam
+    float3 pos = dir * 3.0;
+
+    // Layer 1: large-scale warp field
+    float w1 = fbm3D(pos * 0.7 + float3(time * 0.04, time * 0.03, -time * 0.02));
+    float w2 = fbm3D(pos * 0.7 + float3(5.2, 1.3, 3.7) + float3(-time * 0.03, time * 0.02, time * 0.01));
+
+    // Layer 2: warp the position for swirling flow
+    float3 warped = pos + float3(w1, w2, w1 * w2) * 2.2;
+
+    // Layer 3: detail noise on warped coordinates
+    float n1 = fbm3D(warped);
+    float n2 = fbm3D(warped + float3(w1 * 0.5 + time * 0.02, w2 * 0.4 - time * 0.015, time * 0.01));
+
+    // Combine: n1 for structure, n2 for color variation
+    float structure = n1;
+    float colorVal = n1 * 0.5 + n2 * 0.5;
+
+    // Color from palette
+    float3 color = nebulaColor(colorVal + time * 0.02);
+
+    // Swirl ridges: bright where the warp converges
+    float ridge = smoothstep(0.3, 0.7, structure);
+    color *= 0.3 + ridge * 1.2;
+
+    // Hot glow in warp convergence zones
+    float hotspot = smoothstep(0.55, 0.85, w1 * w2 * 4.0);
+    color += float3(0.5, 0.25, 0.05) * hotspot * 0.6;
+
+    // --- Sparkle stars (3D cell-based, no seam) ---
+    float3 starPos = dir * 25.0;
+    float3 starCell = floor(starPos);
+    float3 starF = fract(starPos);
+
+    float starRand = hash3(starCell);
+    if (starRand > 0.88)
+    {
+        float3 sPos = float3(
+            hash3(starCell + float3(7.0, 13.0, 0.0)),
+            hash3(starCell + float3(13.0, 0.0, 7.0)),
+            hash3(starCell + float3(0.0, 7.0, 13.0))
+        );
+        float d = length(starF - sPos);
+        float twinkle = sin(time * 2.5 + starRand * 80.0) * 0.4 + 0.6;
+        float glow = smoothstep(0.2, 0.0, d) * twinkle;
+
+        // Warm-white stars, bright enough to pop in HDR
+        color += float3(1.0, 0.9, 0.7) * glow * 2.0;
+    }
+
+    out.color = float4(max(color, 0.0), 1.0);
+    return out;
+}

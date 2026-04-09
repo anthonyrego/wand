@@ -55,6 +55,24 @@ type DrawCall struct {
 	Transform    mgl32.Mat4
 }
 
+type SwirlVertexUniforms struct {
+	MVP   mgl32.Mat4
+	Model mgl32.Mat4
+}
+
+type SwirlUniforms struct {
+	Time mgl32.Vec4 // x = elapsed seconds
+}
+
+type SwirlDrawCall struct {
+	VertexBuffer *sdl.GPUBuffer
+	IndexBuffer  *sdl.GPUBuffer
+	IndexCount   uint32
+	MVP          mgl32.Mat4
+	Model        mgl32.Mat4
+	Time         float32
+}
+
 type LitDrawCall struct {
 	VertexBuffer *sdl.GPUBuffer
 	IndexBuffer  *sdl.GPUBuffer
@@ -117,6 +135,9 @@ type Renderer struct {
 	offscreenH          uint32
 	offscreenFormat     sdl.GPUTextureFormat
 	hdr                 bool
+
+	// Swirl effect rendering
+	swirlPipeline *sdl.GPUGraphicsPipeline
 
 	// UI overlay rendering
 	uiPipeline *sdl.GPUGraphicsPipeline
@@ -376,6 +397,11 @@ func (r *Renderer) initLitPipeline() error {
 	}
 	r.litDepthBiasPipeline = litDepthBiasPipeline
 
+	// --- Swirl pipeline ---
+	if err := r.initSwirlPipeline(); err != nil {
+		return err
+	}
+
 	// --- Post-process pipeline ---
 	if err := r.initPostProcessPipeline(); err != nil {
 		return err
@@ -422,6 +448,64 @@ func (r *Renderer) initLitPipeline() error {
 		return err
 	}
 
+	return nil
+}
+
+func (r *Renderer) initSwirlPipeline() error {
+	device := r.window.Device()
+
+	swirlVert, err := shaders.LoadShader(device, "Swirl.vert", 0, 1, 0, 0)
+	if err != nil {
+		return errors.New("failed to create swirl vertex shader: " + err.Error())
+	}
+	defer device.ReleaseShader(swirlVert)
+
+	swirlFrag, err := shaders.LoadShader(device, "Swirl.frag", 0, 1, 0, 0)
+	if err != nil {
+		return errors.New("failed to create swirl fragment shader: " + err.Error())
+	}
+	defer device.ReleaseShader(swirlFrag)
+
+	pipeline, err := device.CreateGraphicsPipeline(&sdl.GPUGraphicsPipelineCreateInfo{
+		TargetInfo: sdl.GPUGraphicsPipelineTargetInfo{
+			ColorTargetDescriptions: []sdl.GPUColorTargetDescription{
+				{Format: r.offscreenFormat},
+			},
+			HasDepthStencilTarget: true,
+			DepthStencilFormat:    sdl.GPU_TEXTUREFORMAT_D32_FLOAT,
+		},
+		DepthStencilState: sdl.GPUDepthStencilState{
+			EnableDepthTest:  true,
+			EnableDepthWrite: false,
+			CompareOp:        sdl.GPU_COMPAREOP_GREATER_OR_EQUAL,
+		},
+		VertexInputState: sdl.GPUVertexInputState{
+			VertexBufferDescriptions: []sdl.GPUVertexBufferDescription{
+				{
+					Slot:      0,
+					InputRate: sdl.GPU_VERTEXINPUTRATE_VERTEX,
+					Pitch:     uint32(unsafe.Sizeof(LitVertex{})),
+				},
+			},
+			VertexAttributes: []sdl.GPUVertexAttribute{
+				{BufferSlot: 0, Format: sdl.GPU_VERTEXELEMENTFORMAT_FLOAT3, Location: 0, Offset: 0},
+				{BufferSlot: 0, Format: sdl.GPU_VERTEXELEMENTFORMAT_FLOAT3, Location: 1, Offset: 12},
+				{BufferSlot: 0, Format: sdl.GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, Location: 2, Offset: 24},
+				{BufferSlot: 0, Format: sdl.GPU_VERTEXELEMENTFORMAT_FLOAT2, Location: 3, Offset: 28},
+			},
+		},
+		RasterizerState: sdl.GPURasterizerState{
+			FillMode: sdl.GPU_FILLMODE_FILL,
+			CullMode: sdl.GPU_CULLMODE_BACK,
+		},
+		PrimitiveType:  sdl.GPU_PRIMITIVETYPE_TRIANGLELIST,
+		VertexShader:   swirlVert,
+		FragmentShader: swirlFrag,
+	})
+	if err != nil {
+		return errors.New("failed to create swirl pipeline: " + err.Error())
+	}
+	r.swirlPipeline = pipeline
 	return nil
 }
 
@@ -486,6 +570,10 @@ func (r *Renderer) SetHDR(enabled bool) error {
 		device.ReleaseGraphicsPipeline(r.litDepthBiasPipeline)
 		r.litDepthBiasPipeline = nil
 	}
+	if r.swirlPipeline != nil {
+		device.ReleaseGraphicsPipeline(r.swirlPipeline)
+		r.swirlPipeline = nil
+	}
 	if r.postProcessPipeline != nil {
 		device.ReleaseGraphicsPipeline(r.postProcessPipeline)
 		r.postProcessPipeline = nil
@@ -507,6 +595,9 @@ func (r *Renderer) SetHDR(enabled bool) error {
 
 	// Recreate everything with new formats
 	if err := r.initLitPipeline(); err != nil {
+		return err
+	}
+	if err := r.initSwirlPipeline(); err != nil {
 		return err
 	}
 	if err := r.initPostProcessPipeline(); err != nil {
@@ -1012,6 +1103,34 @@ func (r *Renderer) DrawLit(cmdBuf *sdl.GPUCommandBuffer, renderPass *sdl.GPURend
 	}
 }
 
+func (r *Renderer) DrawSwirl(cmdBuf *sdl.GPUCommandBuffer, renderPass *sdl.GPURenderPass, call SwirlDrawCall) {
+	renderPass.BindGraphicsPipeline(r.swirlPipeline)
+
+	vertUniforms := SwirlVertexUniforms{
+		MVP:   call.MVP,
+		Model: call.Model,
+	}
+	cmdBuf.PushVertexUniformData(0, unsafe.Slice(
+		(*byte)(unsafe.Pointer(&vertUniforms)), unsafe.Sizeof(vertUniforms),
+	))
+
+	fragUniforms := SwirlUniforms{
+		Time: mgl32.Vec4{call.Time, 0, 0, 0},
+	}
+	cmdBuf.PushFragmentUniformData(0, unsafe.Slice(
+		(*byte)(unsafe.Pointer(&fragUniforms)), unsafe.Sizeof(fragUniforms),
+	))
+
+	renderPass.BindVertexBuffers([]sdl.GPUBufferBinding{
+		{Buffer: call.VertexBuffer, Offset: 0},
+	})
+	renderPass.BindIndexBuffer(&sdl.GPUBufferBinding{
+		Buffer: call.IndexBuffer, Offset: 0,
+	}, sdl.GPU_INDEXELEMENTSIZE_16BIT)
+
+	renderPass.DrawIndexedPrimitives(call.IndexCount, 1, 0, 0, 0)
+}
+
 func (r *Renderer) EndScenePass(renderPass *sdl.GPURenderPass) {
 	renderPass.End()
 }
@@ -1176,6 +1295,9 @@ func (r *Renderer) Destroy() {
 	}
 	if r.postProcessPipeline != nil {
 		device.ReleaseGraphicsPipeline(r.postProcessPipeline)
+	}
+	if r.swirlPipeline != nil {
+		device.ReleaseGraphicsPipeline(r.swirlPipeline)
 	}
 	if r.litPipeline != nil {
 		device.ReleaseGraphicsPipeline(r.litPipeline)

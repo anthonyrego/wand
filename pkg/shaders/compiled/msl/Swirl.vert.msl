@@ -1,0 +1,35 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SwirlVertexUniforms
+{
+    float4x4 mvp;
+    float4x4 model;
+};
+
+struct main0_out
+{
+    float3 worldPosition [[user(locn0)]];
+    float3 worldNormal [[user(locn1)]];
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    float3 position [[attribute(0)]];
+    float3 normal [[attribute(1)]];
+    float4 color [[attribute(2)]];
+    float2 texCoord [[attribute(3)]];
+};
+
+vertex main0_out main0(main0_in in [[stage_in]], constant SwirlVertexUniforms& uniforms [[buffer(0)]])
+{
+    main0_out out = {};
+    float4 worldPos = uniforms.model * float4(in.position, 1.0);
+    out.worldPosition = worldPos.xyz;
+    out.worldNormal = normalize((uniforms.model * float4(in.normal, 0.0)).xyz);
+    out.gl_Position = uniforms.mvp * float4(in.position, 1.0);
+    return out;
+}

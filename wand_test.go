@@ -171,7 +171,7 @@ func TestListenerSmoothing(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// First packet: yaw=0. Sets the initial quaternion.
+	// First packet: yaw=0. Sets the initial value.
 	conn.Write(EncodePacket(State{Yaw: 0, Seq: 1}))
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
@@ -181,7 +181,7 @@ func TestListenerSmoothing(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Second packet: yaw=90. With smoothing=0.5, SLERP t=0.5 → yaw should be ~45.
+	// Second packet: yaw=90. With smoothing=0.5, lerp t=0.5 → yaw should be ~45.
 	conn.Write(EncodePacket(State{Yaw: 90, Seq: 2}))
 	deadline = time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {

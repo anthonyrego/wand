@@ -27,8 +27,10 @@ type Listener struct {
 	lastAckSent atomic.Int64 // unix nano of last ack sent
 
 	smoothing atomic.Uint32 // math.Float32bits of factor [0,1]
-	prevQuat  quat          // only accessed by readLoop
-	hasQuat   bool          // only accessed by readLoop
+	prevRoll  float32       // only accessed by readLoop
+	prevPitch float32       // only accessed by readLoop
+	prevYaw   float32       // only accessed by readLoop
+	hasSmooth bool          // only accessed by readLoop
 }
 
 // New creates a Listener that will bind to the given UDP port.
@@ -155,16 +157,21 @@ func (l *Listener) readLoop() {
 				continue
 			}
 
-			// Apply quaternion SLERP smoothing to orientation.
+			// Apply euler lerp smoothing to orientation.
 			if factor := math.Float32frombits(l.smoothing.Load()); factor > 0 {
-				cur := eulerToQuat(state.Roll, state.Pitch, state.Yaw)
-				if !l.hasQuat {
-					l.prevQuat = cur
-					l.hasQuat = true
+				t := 1 - factor
+				if !l.hasSmooth {
+					l.prevRoll = state.Roll
+					l.prevPitch = state.Pitch
+					l.prevYaw = state.Yaw
+					l.hasSmooth = true
 				}
-				smoothed := l.prevQuat.slerp(cur, 1-factor)
-				l.prevQuat = smoothed
-				state.Roll, state.Pitch, state.Yaw = smoothed.toEuler()
+				l.prevRoll += wrapDiff(state.Roll, l.prevRoll) * t
+				l.prevPitch += wrapDiff(state.Pitch, l.prevPitch) * t
+				l.prevYaw += wrapDiff(state.Yaw, l.prevYaw) * t
+				state.Roll = l.prevRoll
+				state.Pitch = l.prevPitch
+				state.Yaw = l.prevYaw
 			}
 
 			now := time.Now()
@@ -183,4 +190,16 @@ func (l *Listener) readLoop() {
 			l.packetsDropped.Add(1)
 		}
 	}
+}
+
+// wrapDiff returns (a - b) wrapped to [-180, 180].
+func wrapDiff(a, b float32) float32 {
+	d := a - b
+	for d > 180 {
+		d -= 360
+	}
+	for d < -180 {
+		d += 360
+	}
+	return d
 }

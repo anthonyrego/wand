@@ -65,6 +65,8 @@ type Game struct {
 	filled   bool
 
 	wantsChange bool
+
+	debugMeshes [3]*mesh.Mesh
 }
 
 func New(w *wand.Listener) *Game {
@@ -232,12 +234,12 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	if !g.pause.IsActive() {
 		s := g.wand.State()
 
-		roll := mgl32.DegToRad(s.Roll)
-		pitch := mgl32.DegToRad(s.Pitch)
-		yaw := mgl32.DegToRad(s.Yaw)
-		g.rotation = mgl32.HomogRotate3DY(yaw).Mul4(
-			mgl32.HomogRotate3DX(pitch)).Mul4(
-			mgl32.HomogRotate3DZ(roll))
+		roll := mgl32.DegToRad(s.Pitch)
+		pitch := mgl32.DegToRad(s.Roll)
+		yaw := mgl32.DegToRad(s.Yaw + 90)
+		g.rotation = mgl32.HomogRotate3DY(-yaw).Mul4(
+			mgl32.HomogRotate3DX(-pitch)).Mul4(
+			mgl32.HomogRotate3DZ(-roll))
 
 		mag := float32(math.Sqrt(float64(s.AccelX*s.AccelX + s.AccelY*s.AccelY + s.AccelZ*s.AccelZ)))
 		g.samples[g.writePos] = mag
@@ -361,7 +363,44 @@ func (g *Game) renderParticleRiver(e *engine.Engine, frame renderer.RenderFrame)
 func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *sdl.GPUTexture) {
 	if g.pause.IsActive() {
 		g.pause.Render(e.Rend, cmdBuf, target, e.Win.Width(), e.Win.Height())
+		return
 	}
+
+	// Release previous frame's debug meshes.
+	for i, m := range g.debugMeshes {
+		if m != nil {
+			m.Destroy(e.Rend)
+			g.debugMeshes[i] = nil
+		}
+	}
+
+	s := g.wand.State()
+	lines := [3]string{
+		fmt.Sprintf("ROLL  %7.1f", s.Roll),
+		fmt.Sprintf("PITCH %7.1f", s.Pitch),
+		fmt.Sprintf("YAW   %7.1f", s.Yaw),
+	}
+
+	const ps = float32(3)
+	ortho := mgl32.Ortho2D(0, float32(e.Win.Width()), float32(e.Win.Height()), 0)
+	pass := e.Rend.BeginUIPass(cmdBuf, target)
+
+	for i, text := range lines {
+		m, _, err := ui.NewTextMesh(e.Rend, text, ps, 255, 255, 255, 200)
+		if err != nil {
+			continue
+		}
+		g.debugMeshes[i] = m
+		y := float32(10) + float32(i)*ps*8
+		e.Rend.DrawUI(cmdBuf, pass, renderer.DrawCall{
+			VertexBuffer: m.VertexBuffer,
+			IndexBuffer:  m.IndexBuffer,
+			IndexCount:   m.IndexCount,
+			Transform:    ortho.Mul4(mgl32.Translate3D(10, y, 0)),
+		})
+	}
+
+	e.Rend.EndUIPass(pass)
 }
 
 func (g *Game) Destroy(e *engine.Engine) {
@@ -372,6 +411,12 @@ func (g *Game) Destroy(e *engine.Engine) {
 	}
 	if g.riverIB != nil {
 		e.Rend.ReleaseBuffer(g.riverIB)
+	}
+	for i, m := range g.debugMeshes {
+		if m != nil {
+			m.Destroy(e.Rend)
+			g.debugMeshes[i] = nil
+		}
 	}
 }
 

@@ -124,27 +124,6 @@ fragment main0_out main0(main0_in in [[stage_in]],
     float hotspot = smoothstep(0.55, 0.85, w1 * w2 * 4.0);
     color += float3(0.5, 0.25, 0.05) * hotspot * 0.6;
 
-    // --- Sparkle stars (3D cell-based, no seam) ---
-    float3 starPos = dir * 25.0;
-    float3 starCell = floor(starPos);
-    float3 starF = fract(starPos);
-
-    float starRand = hash3(starCell);
-    if (starRand > 0.88)
-    {
-        float3 sPos = float3(
-            hash3(starCell + float3(7.0, 13.0, 0.0)),
-            hash3(starCell + float3(13.0, 0.0, 7.0)),
-            hash3(starCell + float3(0.0, 7.0, 13.0))
-        );
-        float d = length(starF - sPos);
-        float twinkle = sin(time * 2.5 + starRand * 80.0) * 0.4 + 0.6;
-        float glow = smoothstep(0.2, 0.0, d) * twinkle;
-
-        // Warm-white stars, bright enough to pop in HDR
-        color += float3(1.0, 0.9, 0.7) * glow * 2.0;
-    }
-
     out.color = float4(max(color, 0.0), 1.0);
     return out;
 }

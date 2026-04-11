@@ -7,6 +7,7 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
+	"github.com/anthonyrego/wand/pkg/audio"
 	"github.com/anthonyrego/wand/pkg/camera"
 	"github.com/anthonyrego/wand/pkg/input"
 	"github.com/anthonyrego/wand/pkg/renderer"
@@ -29,6 +30,7 @@ type Engine struct {
 	Rend  *renderer.Renderer
 	Cam   *camera.Camera
 	Input *input.Input
+	Audio *audio.Device
 
 	// Set by game in Update, used by engine during render.
 	LightUniforms renderer.LightUniforms
@@ -74,11 +76,17 @@ func New(title string, ds settings.Settings) (*Engine, error) {
 	cam := camera.New(float32(win.Width()) / float32(win.Height()))
 	cam.Far = ds.RenderDistance
 
+	aud, err := audio.New()
+	if err != nil {
+		fmt.Println("Warning: could not init audio:", err)
+	}
+
 	return &Engine{
 		Win:   win,
 		Rend:  rend,
 		Cam:   cam,
 		Input: input.New(),
+		Audio: aud,
 	}, nil
 }
 
@@ -198,6 +206,9 @@ func (e *Engine) SetMouseMode(relative bool) {
 
 // Destroy releases the renderer and window.
 func (e *Engine) Destroy() {
+	if e.Audio != nil {
+		e.Audio.Destroy()
+	}
 	e.Rend.Destroy()
 	e.Win.Destroy()
 }

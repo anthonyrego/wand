@@ -9,6 +9,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/anthonyrego/wand"
+	"github.com/anthonyrego/wand/pkg/audio"
 	"github.com/anthonyrego/wand/pkg/engine"
 	"github.com/anthonyrego/wand/pkg/mesh"
 	"github.com/anthonyrego/wand/pkg/renderer"
@@ -47,6 +48,28 @@ type hitEvent struct {
 	ring      []particle
 }
 
+type activeSound struct {
+	freq      float32
+	phase     float32
+	age       float32
+	amplitude float32
+}
+
+// Pentatonic scale: C4, D4, E4, G4, A4, C5, D5, E5, G5, A5
+var pentatonic = [10]float32{
+	261.63, 293.66, 329.63, 392.00, 440.00,
+	523.25, 587.33, 659.25, 783.99, 880.00,
+}
+
+func hueToFreq(hue float32) float32 {
+	hue = hue - float32(math.Floor(float64(hue)))
+	idx := int(hue * float32(len(pentatonic)))
+	if idx >= len(pentatonic) {
+		idx = len(pentatonic) - 1
+	}
+	return pentatonic[idx]
+}
+
 type Game struct {
 	wand  *wand.Listener
 	pause *ui.PauseMenu
@@ -63,7 +86,13 @@ type Game struct {
 
 	lastHitTime float32
 
+	// Audio
+	stream *sdl.AudioStream
+	sounds []activeSound
+	mixBuf []float32
+
 	wantsChange bool
+	showDebug   bool
 	debugMeshes [4]*mesh.Mesh
 }
 
@@ -151,6 +180,16 @@ func (g *Game) Init(e *engine.Engine) error {
 		Tint:   mgl32.Vec4{1.0, 1.0, 1.0, 0},
 	}
 
+	// Audio
+	if e.Audio != nil {
+		stream, err := e.Audio.NewStream()
+		if err != nil {
+			fmt.Println("Warning: drum circle audio:", err)
+		} else {
+			g.stream = stream
+		}
+	}
+
 	return nil
 }
 
@@ -168,6 +207,10 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 		g.pause.ConfirmApply()
 	case ui.ActionChangeGame:
 		g.wantsChange = true
+	}
+
+	if e.Input.IsKeyPressed(sdl.K_GRAVE) {
+		g.showDebug = !g.showDebug
 	}
 
 	g.time += dt
@@ -201,6 +244,14 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 			intensity = 1
 		}
 		g.spawnHitEvent(cr, cg, cb, intensity)
+
+		// Spawn audio tone
+		if g.stream != nil {
+			g.sounds = append(g.sounds, activeSound{
+				freq:      hueToFreq(hue),
+				amplitude: 0.3 + intensity*0.7,
+			})
+		}
 	}
 
 	// Gyro trail emission
@@ -294,7 +345,83 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	}
 	e.LightUniforms.NumLights = mgl32.Vec4{float32(lightIdx), 0, 0, 0}
 
+	g.generateAudio(dt)
+
 	return true
+}
+
+func (g *Game) generateAudio(dt float32) {
+	if g.stream == nil {
+		return
+	}
+
+	numSamples := int(float32(audio.SampleRate) * dt)
+	if numSamples <= 0 {
+		return
+	}
+
+	// Grow/reuse mix buffer
+	if cap(g.mixBuf) < numSamples {
+		g.mixBuf = make([]float32, numSamples)
+	}
+	g.mixBuf = g.mixBuf[:numSamples]
+	for i := range g.mixBuf {
+		g.mixBuf[i] = 0
+	}
+
+	// Mix all active sounds
+	alive := 0
+	for i := range g.sounds {
+		s := &g.sounds[i]
+		if s.age > 0.5 {
+			continue
+		}
+
+		for j := 0; j < numSamples; j++ {
+			t := s.age + float32(j)/float32(audio.SampleRate)
+
+			// Exponential decay envelope
+			env := s.amplitude * float32(math.Exp(float64(-t*8.0)))
+
+			// Sine tone
+			sample := float32(math.Sin(float64(s.phase))) * env
+
+			// Noise burst at attack (first 20ms)
+			if t < 0.02 {
+				noiseMix := (0.02 - t) / 0.02
+				noise := (rand.Float32()*2 - 1) * noiseMix * s.amplitude * 0.3
+				sample += noise
+			}
+
+			g.mixBuf[j] += sample
+
+			// Advance phase
+			s.phase += 2 * math.Pi * s.freq / float32(audio.SampleRate)
+			if s.phase > 2*math.Pi {
+				s.phase -= 2 * math.Pi
+			}
+		}
+
+		s.age += dt
+		g.sounds[alive] = g.sounds[i]
+		alive++
+	}
+	g.sounds = g.sounds[:alive]
+
+	if alive == 0 {
+		return
+	}
+
+	// Clamp to [-1, 1]
+	for i := range g.mixBuf {
+		if g.mixBuf[i] > 1.0 {
+			g.mixBuf[i] = 1.0
+		} else if g.mixBuf[i] < -1.0 {
+			g.mixBuf[i] = -1.0
+		}
+	}
+
+	audio.PushSamples(g.stream, g.mixBuf)
 }
 
 func (g *Game) spawnHitEvent(r, cg, b uint8, intensity float32) {
@@ -545,6 +672,10 @@ func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *s
 		}
 	}
 
+	if !g.showDebug {
+		return
+	}
+
 	s := g.wand.State()
 	accelMag := float32(math.Sqrt(float64(s.AccelX*s.AccelX+s.AccelY*s.AccelY+s.AccelZ*s.AccelZ))) - gravity
 	gyroMag := float32(math.Sqrt(float64(s.GyroX*s.GyroX + s.GyroY*s.GyroY + s.GyroZ*s.GyroZ)))
@@ -579,6 +710,9 @@ func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *s
 }
 
 func (g *Game) Destroy(e *engine.Engine) {
+	if g.stream != nil {
+		g.stream.Destroy()
+	}
 	g.pause.Destroy(e.Rend)
 	g.ground.Destroy(e.Rend)
 	if g.eventVB != nil {

@@ -23,7 +23,7 @@ func main() {
 		defer binsdl.Load().Unload()
 	}
 
-	if err := sdl.Init(sdl.INIT_VIDEO); err != nil {
+	if err := sdl.Init(sdl.INIT_VIDEO | sdl.INIT_AUDIO); err != nil {
 		panic("failed to initialize SDL: " + err.Error())
 	}
 	defer sdl.Quit()

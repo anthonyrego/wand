@@ -10,6 +10,8 @@ import (
 	"github.com/anthonyrego/wand"
 	"github.com/anthonyrego/wand/games"
 	"github.com/anthonyrego/wand/games/colorsphere"
+	"github.com/anthonyrego/wand/games/drumcircle"
+	"github.com/anthonyrego/wand/games/flying"
 	"github.com/anthonyrego/wand/pkg/engine"
 	"github.com/anthonyrego/wand/pkg/settings"
 )
@@ -43,6 +45,8 @@ func main() {
 
 	defs := []games.GameDef{
 		{Name: "COLOR SPHERE", New: func(w *wand.Listener) engine.Game { return colorsphere.New(w) }},
+		{Name: "FLYING", New: func(w *wand.Listener) engine.Game { return flying.New(w) }},
+		{Name: "DRUM CIRCLE", New: func(w *wand.Listener) engine.Game { return drumcircle.New(w) }},
 	}
 
 	app := games.NewApp(w, defs)

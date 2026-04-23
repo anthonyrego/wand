@@ -63,8 +63,9 @@ Test without hardware by running `make sim` in one terminal and `make play` in a
 
 `make play` launches a single app with an in-app game selector. The wand connects once and is shared across all games. Current games:
 
-- **Color Sphere** — an inward-facing color sphere driven by the wand's orientation, with an accelerometer-driven particle river. A simple cause-and-effect toy for babies 10 months+.
-- **Flying** — a flight simulator where the wand controls pitch, roll, and yaw. Calibrates to neutral on start, with particle effects and a sky dome.
+- **Color Sphere** — an inward-facing color sphere that rotates with the wand, plus a particle river driven by linear acceleration. Captures a neutral pose on the first frame, so however you're holding the wand when the game starts becomes the sphere's zero. A simple cause-and-effect toy for babies 10 months+.
+- **Flying** — a flight simulator where the wand controls pitch, roll, and yaw as angular rates. Captures a neutral pose on the first frame and computes body-frame deltas from there, with particle effects and a sky dome.
+- **Drum Circle** — point the wand in a direction and shake; each direction picks a note from a 20-note minor pentatonic mapped to the faces of an icosahedron. Uses linear acceleration magnitude for hit detection and synthesizes tones through SDL3 audio.
 
 The app uses a lightweight 3D engine included in `pkg/` (SDL3 GPU API, cross-platform Metal/Vulkan/D3D12).
 

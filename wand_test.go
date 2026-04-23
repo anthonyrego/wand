@@ -14,15 +14,13 @@ func TestListenerLoopback(t *testing.T) {
 	}
 	defer l.Stop()
 
-	// Get the actual port the listener bound to
 	addr := l.conn.LocalAddr().(*net.UDPAddr)
 
-	// Send a packet via loopback
 	want := State{
-		Roll: 10.0, Pitch: 20.0, Yaw: 30.0,
-		AccelX: 1.0, AccelY: 2.0, AccelZ: 9.8,
+		Q:         Quat{W: 0.707, X: 0.0, Y: 0.707, Z: 0.0},
+		LinAccelX: 1.0, LinAccelY: 2.0, LinAccelZ: 0.5,
 		GyroX: 0.5, GyroY: -0.5, GyroZ: 0.0,
-		Seq: 7,
+		Seq:   7,
 	}
 	data := EncodePacket(want)
 
@@ -36,7 +34,6 @@ func TestListenerLoopback(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 
-	// Wait for the listener to process it
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if l.PacketsReceived() > 0 {
@@ -53,11 +50,11 @@ func TestListenerLoopback(t *testing.T) {
 	if got.Seq != want.Seq {
 		t.Errorf("Seq = %d, want %d", got.Seq, want.Seq)
 	}
-	if got.Roll != want.Roll {
-		t.Errorf("Roll = %v, want %v", got.Roll, want.Roll)
+	if got.Q != want.Q {
+		t.Errorf("Q = %+v, want %+v", got.Q, want.Q)
 	}
-	if got.AccelZ != want.AccelZ {
-		t.Errorf("AccelZ = %v, want %v", got.AccelZ, want.AccelZ)
+	if got.LinAccelZ != want.LinAccelZ {
+		t.Errorf("LinAccelZ = %v, want %v", got.LinAccelZ, want.LinAccelZ)
 	}
 }
 
@@ -68,12 +65,10 @@ func TestListenerConnected(t *testing.T) {
 	}
 	defer l.Stop()
 
-	// No packets yet — should not be connected
 	if l.Connected(time.Second) {
 		t.Error("Connected() = true before any packets")
 	}
 
-	// Send a packet
 	addr := l.conn.LocalAddr().(*net.UDPAddr)
 	conn, err := net.DialUDP("udp", nil, addr)
 	if err != nil {
@@ -81,12 +76,12 @@ func TestListenerConnected(t *testing.T) {
 	}
 	defer conn.Close()
 
-	conn.Write(EncodePacket(State{Seq: 1}))
+	conn.Write(EncodePacket(State{Q: QuatIdent(), Seq: 1}))
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if l.Connected(time.Second) {
-			return // success
+			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -101,22 +96,18 @@ func TestListenerDiscovery(t *testing.T) {
 	defer l.Stop()
 
 	boundAddr := l.conn.LocalAddr().(*net.UDPAddr)
-	// Use loopback with the listener's port for routing
 	addr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: boundAddr.Port}
 
-	// Use ListenUDP so we can both send and receive
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatalf("ListenUDP: %v", err)
 	}
 	defer conn.Close()
 
-	// Send a discovery packet
 	if _, err := conn.WriteToUDP(EncodeDiscovery(), addr); err != nil {
 		t.Fatalf("send discovery: %v", err)
 	}
 
-	// Expect an ack back
 	conn.SetReadDeadline(time.Now().Add(time.Second))
 	buf := make([]byte, 16)
 	n, _, err := conn.ReadFromUDP(buf)
@@ -136,8 +127,7 @@ func TestListenerDiscovery(t *testing.T) {
 		t.Error("expected discovery count > 0")
 	}
 
-	// Now send a data packet and verify state works
-	want := State{Roll: 45.0, Pitch: -10.0, Yaw: 90.0, Seq: 1}
+	want := State{Q: Quat{W: 0.707, X: 0.0, Y: 0.0, Z: 0.707}, Seq: 1}
 	if _, err := conn.WriteToUDP(EncodePacket(want), addr); err != nil {
 		t.Fatalf("send data: %v", err)
 	}
@@ -151,11 +141,13 @@ func TestListenerDiscovery(t *testing.T) {
 	}
 
 	got := l.State()
-	if got.Roll != want.Roll {
-		t.Errorf("Roll = %v, want %v", got.Roll, want.Roll)
+	if got.Q != want.Q {
+		t.Errorf("Q = %+v, want %+v", got.Q, want.Q)
 	}
 }
 
+// TestListenerSmoothing sends an identity quat then a 180°-around-Y quat with
+// smoothing=0.5, and expects a ~90°-around-Y result (NLERP midpoint).
 func TestListenerSmoothing(t *testing.T) {
 	l := New(0)
 	l.SetSmoothing(0.5)
@@ -171,8 +163,8 @@ func TestListenerSmoothing(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// First packet: yaw=0. Sets the initial value.
-	conn.Write(EncodePacket(State{Yaw: 0, Seq: 1}))
+	// First packet: identity. Seeds the smoother.
+	conn.Write(EncodePacket(State{Q: QuatIdent(), Seq: 1}))
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if l.PacketsReceived() > 0 {
@@ -181,8 +173,9 @@ func TestListenerSmoothing(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Second packet: yaw=90. With smoothing=0.5, lerp t=0.5 → yaw should be ~45.
-	conn.Write(EncodePacket(State{Yaw: 90, Seq: 2}))
+	// Second: 180° rotation around Y-axis (W=0, Y=1). After NLERP midpoint
+	// we expect ~45° rotation around Y: W ≈ cos(45°), Y ≈ sin(45°).
+	conn.Write(EncodePacket(State{Q: Quat{W: 0, X: 0, Y: 1, Z: 0}, Seq: 2}))
 	deadline = time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if l.PacketsReceived() > 1 {
@@ -192,8 +185,13 @@ func TestListenerSmoothing(t *testing.T) {
 	}
 
 	got := l.State()
-	if math.Abs(float64(got.Yaw-45)) > 1.0 {
-		t.Errorf("smoothed Yaw = %.2f, want ~45", got.Yaw)
+	wantW := float32(math.Sqrt(2) / 2)
+	wantY := float32(math.Sqrt(2) / 2)
+	if math.Abs(float64(got.Q.W-wantW)) > 0.01 || math.Abs(float64(got.Q.Y-wantY)) > 0.01 {
+		t.Errorf("smoothed Q = %+v, want ~{W:%.3f Y:%.3f}", got.Q, wantW, wantY)
+	}
+	if math.Abs(float64(got.Q.X)) > 0.01 || math.Abs(float64(got.Q.Z)) > 0.01 {
+		t.Errorf("smoothed Q off-axis nonzero: %+v", got.Q)
 	}
 }
 
@@ -211,7 +209,7 @@ func TestListenerSmoothingZero(t *testing.T) {
 	}
 	defer conn.Close()
 
-	want := State{Roll: 10, Pitch: 20, Yaw: 30, Seq: 1}
+	want := State{Q: Quat{W: 0.707, X: 0.707, Y: 0, Z: 0}, Seq: 1}
 	conn.Write(EncodePacket(want))
 
 	deadline := time.Now().Add(time.Second)
@@ -223,9 +221,8 @@ func TestListenerSmoothingZero(t *testing.T) {
 	}
 
 	got := l.State()
-	if got.Roll != want.Roll || got.Pitch != want.Pitch || got.Yaw != want.Yaw {
-		t.Errorf("raw state = (%.2f, %.2f, %.2f), want (%.2f, %.2f, %.2f)",
-			got.Roll, got.Pitch, got.Yaw, want.Roll, want.Pitch, want.Yaw)
+	if got.Q != want.Q {
+		t.Errorf("raw Q = %+v, want %+v", got.Q, want.Q)
 	}
 }
 
@@ -243,7 +240,6 @@ func TestListenerDropsInvalidPackets(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Send garbage
 	conn.Write([]byte("not a wand packet"))
 
 	time.Sleep(200 * time.Millisecond)

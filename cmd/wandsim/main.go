@@ -74,18 +74,22 @@ func main() {
 	for range ticker.C {
 		t := time.Since(start).Seconds()
 
-		// Smooth figure-8 motion pattern
+		// Compose a smooth figure-8 orientation from three axis-angle quats.
+		// Rotations are about the wand body frame: +X=tip, +Y=up, +Z=right.
+		qRoll := quatAxisAngle(0, 0, 1, 0.5*math.Sin(t*0.8))  // roll around +Z (right)
+		qPitch := quatAxisAngle(1, 0, 0, 0.35*math.Sin(t*0.6)) // pitch around +X (tip)
+		qYaw := quatAxisAngle(0, 1, 0, math.Pi+0.5*math.Sin(t*0.3)) // yaw around +Y (up)
+		q := qYaw.Mul(qPitch).Mul(qRoll).Normalize()
+
 		s := wand.State{
-			Roll:   float32(30.0 * math.Sin(t*0.8)),
-			Pitch:  float32(20.0 * math.Sin(t*0.6)),
-			Yaw:    float32(180.0 + 90.0*math.Sin(t*0.3)),
-			AccelX: float32(0.5 * math.Cos(t*0.8)),
-			AccelY: float32(-9.8 + 0.3*math.Sin(t*1.2)),
-			AccelZ: float32(0.5 * math.Sin(t*0.8)),
-			GyroX:  float32(24.0 * math.Cos(t*0.8)),  // derivative of roll
-			GyroY:  float32(12.0 * math.Cos(t*0.6)),  // derivative of pitch
-			GyroZ:  float32(27.0 * math.Cos(t*0.3)),  // derivative of yaw
-			Seq:    seq,
+			Q:         q,
+			LinAccelX: float32(0.5 * math.Cos(t*0.8)),
+			LinAccelY: float32(0.3 * math.Sin(t*1.2)),
+			LinAccelZ: float32(0.5 * math.Sin(t*0.8)),
+			GyroX:     float32(24.0 * math.Cos(t*0.8)),
+			GyroY:     float32(12.0 * math.Cos(t*0.6)),
+			GyroZ:     float32(27.0 * math.Cos(t*0.3)),
+			Seq:       seq,
 		}
 
 		data := wand.EncodePacket(s)
@@ -94,5 +98,21 @@ func main() {
 		}
 
 		seq++
+	}
+}
+
+// quatAxisAngle builds a unit quaternion from an axis (x, y, z) and an
+// angle in radians. The axis is normalized.
+func quatAxisAngle(x, y, z, angle float64) wand.Quat {
+	n := math.Sqrt(x*x + y*y + z*z)
+	if n == 0 {
+		return wand.QuatIdent()
+	}
+	s := math.Sin(angle/2) / n
+	return wand.Quat{
+		W: float32(math.Cos(angle / 2)),
+		X: float32(x * s),
+		Y: float32(y * s),
+		Z: float32(z * s),
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sort"
 
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
@@ -17,18 +18,17 @@ import (
 )
 
 const (
-	maxEvents      = 32
-	burstCount     = 30
-	ringCount      = 20
-	maxTrails      = 200
-	accelThreshold = 3.0   // m/s² above gravity baseline
-	accelCooldown  = 0.15  // seconds between hits
-	gyroThreshold  = 25.0  // °/s to start trail emission
-	eventLifetime  = 1.5   // seconds
-	trailLifetime  = 0.8   // seconds
-	ringExpandRate = 5.0   // units/s outward velocity
-	burstDrag      = 0.96  // per-frame velocity multiplier
-	gravity        = 9.81  // m/s²
+	maxEvents        = 32
+	burstCount       = 30
+	ringCount        = 20
+	maxTrails        = 200
+	accelThreshold   = 2.0  // m/s² (linear accel — gravity already removed by firmware)
+	accelCooldown    = 0.15 // seconds between hits
+	gyroThreshold    = 25.0 // °/s to start trail emission
+	eventLifetime    = 1.5  // seconds
+	trailLifetime    = 0.8  // seconds
+	ringExpandRate   = 5.0  // units/s outward velocity
+	burstDrag        = 0.96 // per-frame velocity multiplier
 )
 
 type particle struct {
@@ -55,19 +55,73 @@ type activeSound struct {
 	amplitude float32
 }
 
-// Pentatonic scale: C4, D4, E4, G4, A4, C5, D5, E5, G5, A5
-var pentatonic = [10]float32{
-	261.63, 293.66, 329.63, 392.00, 440.00,
-	523.25, 587.33, 659.25, 783.99, 880.00,
+// 20-note minor pentatonic across 4 octaves (C3..A6). Face index (sorted by
+// elevation then azimuth) selects which note plays on a hit.
+var faceNotes = [20]float32{
+	130.81, 146.83, 164.81, 196.00, 220.00, // C3..A3
+	261.63, 293.66, 329.63, 392.00, 440.00, // C4..A4
+	523.25, 587.33, 659.25, 783.99, 880.00, // C5..A5
+	1046.50, 1174.66, 1318.51, 1567.98, 1760.00, // C6..A6
 }
 
-func hueToFreq(hue float32) float32 {
-	hue = hue - float32(math.Floor(float64(hue)))
-	idx := int(hue * float32(len(pentatonic)))
-	if idx >= len(pentatonic) {
-		idx = len(pentatonic) - 1
+// 20 face centroids of a regular icosahedron, each paired with a rank into
+// faceNotes (ascending by elevation, then azimuth). Built once at Init; used
+// only for audio — the sphere isn't drawn.
+type icosahedron struct {
+	centroids [20]mgl32.Vec3
+	noteIdx   [20]int
+}
+
+func buildIcosa() icosahedron {
+	phi := float32(1.6180339887498949)
+	raw := [12]mgl32.Vec3{
+		{0, -1, -phi}, {0, 1, -phi}, {0, -1, phi}, {0, 1, phi},
+		{-1, -phi, 0}, {1, -phi, 0}, {-1, phi, 0}, {1, phi, 0},
+		{-phi, 0, -1}, {-phi, 0, 1}, {phi, 0, -1}, {phi, 0, 1},
 	}
-	return pentatonic[idx]
+	var verts [12]mgl32.Vec3
+	for i, v := range raw {
+		verts[i] = v.Normalize()
+	}
+	faces := [20][3]int{
+		{0, 1, 8}, {0, 8, 4}, {0, 4, 5}, {0, 5, 10}, {0, 10, 1},
+		{1, 10, 7}, {1, 7, 6}, {1, 6, 8}, {8, 6, 9}, {8, 9, 4},
+		{4, 9, 2}, {4, 2, 5}, {5, 2, 11}, {5, 11, 10}, {10, 11, 7},
+		{7, 11, 3}, {7, 3, 6}, {6, 3, 9}, {9, 3, 2}, {2, 3, 11},
+	}
+	var ico icosahedron
+	for i, f := range faces {
+		c := verts[f[0]].Add(verts[f[1]]).Add(verts[f[2]]).Mul(1.0 / 3.0)
+		ico.centroids[i] = c.Normalize()
+	}
+
+	order := make([]int, 20)
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ca, cb := ico.centroids[order[a]], ico.centroids[order[b]]
+		if math.Abs(float64(ca.Y()-cb.Y())) > 0.05 {
+			return ca.Y() < cb.Y()
+		}
+		return math.Atan2(float64(ca.X()), float64(ca.Z())) < math.Atan2(float64(cb.X()), float64(cb.Z()))
+	})
+	for rank, faceI := range order {
+		ico.noteIdx[faceI] = rank
+	}
+	return ico
+}
+
+func (ico *icosahedron) findFace(forward mgl32.Vec3) int {
+	best, bestDot := 0, float32(-2.0)
+	for i := range ico.centroids {
+		d := ico.centroids[i].Dot(forward)
+		if d > bestDot {
+			bestDot = d
+			best = i
+		}
+	}
+	return best
 }
 
 type Game struct {
@@ -83,6 +137,8 @@ type Game struct {
 	eventIB *sdl.GPUBuffer
 	trailVB *sdl.GPUBuffer
 	trailIB *sdl.GPUBuffer
+
+	icosa icosahedron
 
 	lastHitTime float32
 
@@ -146,6 +202,8 @@ func (g *Game) Init(e *engine.Engine) error {
 	if err != nil {
 		return err
 	}
+
+	g.icosa = buildIcosa()
 
 	// Pause menu
 	resolutions := e.Win.DisplayModes()
@@ -221,20 +279,20 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 
 	s := g.wand.State()
 
-	// Accel magnitude minus gravity baseline
-	accelMag := float32(math.Sqrt(float64(s.AccelX*s.AccelX+s.AccelY*s.AccelY+s.AccelZ*s.AccelZ))) - gravity
-	if accelMag < 0 {
-		accelMag = 0
-	}
+	// Linear accel is gravity-compensated by the firmware — magnitude is
+	// zero when the wand is still, regardless of orientation.
+	accelMag := float32(math.Sqrt(float64(s.LinAccelX*s.LinAccelX + s.LinAccelY*s.LinAccelY + s.LinAccelZ*s.LinAccelZ)))
 
 	// Gyro magnitude
 	gyroMag := float32(math.Sqrt(float64(s.GyroX*s.GyroX + s.GyroY*s.GyroY + s.GyroZ*s.GyroZ)))
 
-	// Current color from orientation
-	hue := (s.Yaw + 180.0) / 360.0
-	sat := float32(0.7 + 0.3*((float64(s.Pitch)+90.0)/180.0))
-	val := float32(0.8 + 0.2*(math.Abs(float64(s.Roll))/180.0))
-	cr, cg, cb := hsvToRGB(hue, sat, val)
+	// Trail color tracks orientation (HSV). Derived Euler is only cosmetic
+	// here — never used for control logic.
+	roll, pitch, yaw := s.Euler()
+	trailHue := (yaw + 180.0) / 360.0
+	trailSat := float32(0.7 + 0.3*((float64(pitch)+90.0)/180.0))
+	trailVal := float32(0.8 + 0.2*(math.Abs(float64(roll))/180.0))
+	cr, cg, cb := hsvToRGB(trailHue, trailSat, trailVal)
 
 	// Accel hit detection with cooldown
 	if accelMag > accelThreshold && (g.time-g.lastHitTime) > accelCooldown {
@@ -243,12 +301,19 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 		if intensity > 1 {
 			intensity = 1
 		}
+
+		// Face selection from wand tip direction → note. Rotate the +X
+		// body-frame tip vector by the wand orientation.
+		wq := mgl32.Quat{W: s.Q.W, V: mgl32.Vec3{s.Q.X, s.Q.Y, s.Q.Z}}
+		faceI := g.icosa.findFace(wq.Rotate(mgl32.Vec3{1, 0, 0}))
+		noteIdx := g.icosa.noteIdx[faceI]
+
 		g.spawnHitEvent(cr, cg, cb, intensity)
 
-		// Spawn audio tone
+		// Spawn audio tone at the face's note.
 		if g.stream != nil {
 			g.sounds = append(g.sounds, activeSound{
-				freq:      hueToFreq(hue),
+				freq:      faceNotes[noteIdx],
 				amplitude: 0.3 + intensity*0.7,
 			})
 		}
@@ -677,13 +742,14 @@ func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *s
 	}
 
 	s := g.wand.State()
-	accelMag := float32(math.Sqrt(float64(s.AccelX*s.AccelX+s.AccelY*s.AccelY+s.AccelZ*s.AccelZ))) - gravity
+	accelMag := float32(math.Sqrt(float64(s.LinAccelX*s.LinAccelX + s.LinAccelY*s.LinAccelY + s.LinAccelZ*s.LinAccelZ)))
 	gyroMag := float32(math.Sqrt(float64(s.GyroX*s.GyroX + s.GyroY*s.GyroY + s.GyroZ*s.GyroZ)))
+	roll, pitch, yaw := s.Euler()
 
 	lines := [4]string{
-		fmt.Sprintf("ROLL  %7.1f", s.Roll),
-		fmt.Sprintf("PITCH %7.1f", s.Pitch),
-		fmt.Sprintf("YAW   %7.1f", s.Yaw),
+		fmt.Sprintf("ROLL  %7.1f", roll),
+		fmt.Sprintf("PITCH %7.1f", pitch),
+		fmt.Sprintf("YAW   %7.1f", yaw),
 		fmt.Sprintf("ACC %5.1f GYR %5.1f", accelMag, gyroMag),
 	}
 

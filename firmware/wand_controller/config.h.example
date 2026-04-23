@@ -1,2 +1,12 @@
 #define WIFI_SSID     "YOUR_WIFI_SSID"
 #define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+
+// Wand-frame remap quaternion: rotates the BNO085 sensor frame into the
+// wand body frame (+X = tip-forward, +Y = up, +Z = right). Defaults to
+// identity — calibrate by holding the wand in its neutral pose, reading
+// the quaternion from `make monitor`, and setting these to its inverse
+// (negate X/Y/Z, keep W).
+#define WAND_REMAP_W 1.0f
+#define WAND_REMAP_X 0.0f
+#define WAND_REMAP_Y 0.0f
+#define WAND_REMAP_Z 0.0f

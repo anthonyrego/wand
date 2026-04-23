@@ -13,8 +13,8 @@ IPAddress broadcastIP(255, 255, 255, 255);
 // --- Protocol ---
 const uint8_t MAGIC0   = 0x57; // 'W'
 const uint8_t MAGIC1   = 0x44; // 'D'
-const uint8_t VERSION  = 0x01;
-const int PACKET_SIZE  = 40;
+const uint8_t VERSION  = 0x02;
+const int PACKET_SIZE  = 44;
 const int CTRL_SIZE    = 4;
 
 // Control packet types
@@ -38,11 +38,32 @@ CodeCell myCodeCell;
 WiFiUDP udp;
 uint8_t seq = 0;
 
+// Rotate a quaternion from sensor frame into wand body frame via
+// r * q * r^-1 (conjugation). r is WAND_REMAP from config.h; identity by
+// default, calibrated by holding the wand at its neutral pose and setting
+// r to the inverse of the sensor-frame quaternion read at that pose.
+static inline void apply_wand_remap(float &qw, float &qx, float &qy, float &qz) {
+  const float rw = WAND_REMAP_W, rx = WAND_REMAP_X, ry = WAND_REMAP_Y, rz = WAND_REMAP_Z;
+
+  // t = r * q
+  float tw = rw*qw - rx*qx - ry*qy - rz*qz;
+  float tx = rw*qx + rx*qw + ry*qz - rz*qy;
+  float ty = rw*qy - rx*qz + ry*qw + rz*qx;
+  float tz = rw*qz + rx*qy - ry*qx + rz*qw;
+
+  // out = t * r^-1 (conjugate of unit r)
+  qw = tw*rw - tx*(-rx) - ty*(-ry) - tz*(-rz);
+  qx = tw*(-rx) + tx*rw + ty*(-rz) - tz*(-ry);
+  qy = tw*(-ry) - tx*(-rz) + ty*rw + tz*(-rx);
+  qz = tw*(-rz) + tx*(-ry) - ty*(-rx) + tz*rw;
+}
+
 void setup() {
   Serial.begin(115200);
 
-  // Initialize CodeCell with rotation + accelerometer + gyro
-  myCodeCell.Init(MOTION_ROTATION_NO_MAG + MOTION_ACCELEROMETER + MOTION_GYRO);
+  // Game rotation vector (no-mag quaternion) + linear acceleration (gravity
+  // removed) + raw gyro.
+  myCodeCell.Init(MOTION_ROTATION_NO_MAG + MOTION_LINEAR_ACC + MOTION_GYRO);
 
   // Connect to WiFi
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -128,17 +149,18 @@ void loop() {
           break;
         }
 
-        // Read IMU data
-        float roll, pitch, yaw;
-        myCodeCell.Motion_RotationNoMagRead(roll, pitch, yaw);
+        // Read IMU data: game rotation quaternion + linear accel + gyro
+        float qw, qx, qy, qz;
+        myCodeCell.Motion_RotationNoMagVectorRead(qw, qx, qy, qz);
+        apply_wand_remap(qw, qx, qy, qz);
 
         float ax, ay, az;
-        myCodeCell.Motion_AccelerometerRead(ax, ay, az);
+        myCodeCell.Motion_LinearAccRead(ax, ay, az);
 
         float gx, gy, gz;
         myCodeCell.Motion_GyroRead(gx, gy, gz);
 
-        // Build 40-byte data packet
+        // Build 44-byte data packet
         uint8_t packet[PACKET_SIZE];
         packet[0] = MAGIC0;
         packet[1] = MAGIC1;
@@ -146,15 +168,16 @@ void loop() {
         packet[3] = seq++;
 
         // ESP32-C6 is little-endian, matching our protocol
-        memcpy(&packet[4],  &roll,  4);
-        memcpy(&packet[8],  &pitch, 4);
-        memcpy(&packet[12], &yaw,   4);
-        memcpy(&packet[16], &ax,    4);
-        memcpy(&packet[20], &ay,    4);
-        memcpy(&packet[24], &az,    4);
-        memcpy(&packet[28], &gx,    4);
-        memcpy(&packet[32], &gy,    4);
-        memcpy(&packet[36], &gz,    4);
+        memcpy(&packet[4],  &qw, 4);
+        memcpy(&packet[8],  &qx, 4);
+        memcpy(&packet[12], &qy, 4);
+        memcpy(&packet[16], &qz, 4);
+        memcpy(&packet[20], &ax, 4);
+        memcpy(&packet[24], &ay, 4);
+        memcpy(&packet[28], &az, 4);
+        memcpy(&packet[32], &gx, 4);
+        memcpy(&packet[36], &gy, 4);
+        memcpy(&packet[40], &gz, 4);
 
         // Send via unicast UDP — track failures to detect dead host
         int ok = udp.beginPacket(listenerIP, UDP_PORT);

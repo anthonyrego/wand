@@ -27,9 +27,7 @@ type Listener struct {
 	lastAckSent atomic.Int64 // unix nano of last ack sent
 
 	smoothing atomic.Uint32 // math.Float32bits of factor [0,1]
-	prevRoll  float32       // only accessed by readLoop
-	prevPitch float32       // only accessed by readLoop
-	prevYaw   float32       // only accessed by readLoop
+	prevQ     Quat          // only accessed by readLoop
 	hasSmooth bool          // only accessed by readLoop
 }
 
@@ -39,7 +37,7 @@ func New(port int) *Listener {
 		port: port,
 		done: make(chan struct{}),
 	}
-	l.state.Store(State{})
+	l.state.Store(State{Q: QuatIdent()})
 	return l
 }
 
@@ -120,6 +118,11 @@ func (l *Listener) DiscoveriesReceived() uint64 {
 	return l.discoveriesReceived.Load()
 }
 
+// reconnectTimeout bounds how stale the smoother's reference can get before
+// it's treated as a new stream. On reconnect or long stalls the smoother
+// re-seeds from the first new packet instead of lerping from an old value.
+const reconnectTimeout = 500 * time.Millisecond
+
 func (l *Listener) readLoop() {
 	buf := make([]byte, 128) // larger than PacketSize to detect oversized packets
 	ack := EncodeAck()
@@ -157,21 +160,37 @@ func (l *Listener) readLoop() {
 				continue
 			}
 
-			// Apply euler lerp smoothing to orientation.
+			// Apply quaternion NLERP smoothing.
 			if factor := math.Float32frombits(l.smoothing.Load()); factor > 0 {
-				t := 1 - factor
-				if !l.hasSmooth {
-					l.prevRoll = state.Roll
-					l.prevPitch = state.Pitch
-					l.prevYaw = state.Yaw
-					l.hasSmooth = true
+				// If the stream paused longer than reconnectTimeout, drop the
+				// stale reference so we don't lerp from an old orientation.
+				if last := l.lastPacket.Load(); last > 0 {
+					if time.Since(time.Unix(0, last)) > reconnectTimeout {
+						l.hasSmooth = false
+					}
 				}
-				l.prevRoll += wrapDiff(state.Roll, l.prevRoll) * t
-				l.prevPitch += wrapDiff(state.Pitch, l.prevPitch) * t
-				l.prevYaw += wrapDiff(state.Yaw, l.prevYaw) * t
-				state.Roll = l.prevRoll
-				state.Pitch = l.prevPitch
-				state.Yaw = l.prevYaw
+				if !l.hasSmooth {
+					l.prevQ = state.Q
+					l.hasSmooth = true
+				} else {
+					cur := state.Q
+					if l.prevQ.Dot(cur) < 0 {
+						cur = Quat{-cur.W, -cur.X, -cur.Y, -cur.Z}
+					}
+					t := 1 - factor
+					nl := Quat{
+						W: l.prevQ.W + (cur.W-l.prevQ.W)*t,
+						X: l.prevQ.X + (cur.X-l.prevQ.X)*t,
+						Y: l.prevQ.Y + (cur.Y-l.prevQ.Y)*t,
+						Z: l.prevQ.Z + (cur.Z-l.prevQ.Z)*t,
+					}.Normalize()
+					l.prevQ = nl
+					state.Q = nl
+				}
+			} else {
+				// Smoothing disabled — invalidate cached reference so the
+				// next time smoothing is turned back on we re-seed cleanly.
+				l.hasSmooth = false
 			}
 
 			now := time.Now()
@@ -190,16 +209,4 @@ func (l *Listener) readLoop() {
 			l.packetsDropped.Add(1)
 		}
 	}
-}
-
-// wrapDiff returns (a - b) wrapped to [-180, 180].
-func wrapDiff(a, b float32) float32 {
-	d := a - b
-	for d > 180 {
-		d -= 360
-	}
-	for d < -180 {
-		d += 360
-	}
-	return d
 }

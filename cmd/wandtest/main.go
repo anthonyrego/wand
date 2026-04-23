@@ -48,14 +48,19 @@ func main() {
 			status = fmt.Sprintf("\033[32mCONNECTED\033[0m (%v)", remote)
 		}
 
-		// Move cursor up 8 lines and overwrite
-		fmt.Print("\033[8A\033[J")
+		roll, pitch, yaw := s.Euler()
+
+		// Move cursor up 11 lines and overwrite
+		fmt.Print("\033[11A\033[J")
 		fmt.Printf("  Status:  %s\n", status)
 		fmt.Printf("  Packets: %d received, %d dropped\n", l.PacketsReceived(), l.PacketsDropped())
 		fmt.Println()
-		fmt.Printf("  Roll:  %+8.2f°    Accel X: %+7.3f m/s²    Gyro X: %+8.2f°/s\n", s.Roll, s.AccelX, s.GyroX)
-		fmt.Printf("  Pitch: %+8.2f°    Accel Y: %+7.3f m/s²    Gyro Y: %+8.2f°/s\n", s.Pitch, s.AccelY, s.GyroY)
-		fmt.Printf("  Yaw:   %+8.2f°    Accel Z: %+7.3f m/s²    Gyro Z: %+8.2f°/s\n", s.Yaw, s.AccelZ, s.GyroZ)
+		fmt.Printf("  Quat:  W=%+6.3f  X=%+6.3f  Y=%+6.3f  Z=%+6.3f\n", s.Q.W, s.Q.X, s.Q.Y, s.Q.Z)
+		fmt.Printf("  Euler: Roll=%+7.2f°  Pitch=%+7.2f°  Yaw=%+7.2f°\n", roll, pitch, yaw)
+		fmt.Println()
+		fmt.Printf("  LinAccel X: %+7.3f m/s²    Gyro X: %+8.2f°/s\n", s.LinAccelX, s.GyroX)
+		fmt.Printf("  LinAccel Y: %+7.3f m/s²    Gyro Y: %+8.2f°/s\n", s.LinAccelY, s.GyroY)
+		fmt.Printf("  LinAccel Z: %+7.3f m/s²    Gyro Z: %+8.2f°/s\n", s.LinAccelZ, s.GyroZ)
 		fmt.Println()
 		fmt.Printf("  Seq: %d\n", s.Seq)
 	}

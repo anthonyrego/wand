@@ -34,7 +34,7 @@ const (
 	sizeMax = float32(0.045)
 
 	waveAmplitude = float32(0.6)
-	maxAccel      = float32(25.0)
+	maxAccel      = float32(15.0) // linear accel magnitudes are smaller (gravity removed)
 	lerpFactor    = float32(6.0)
 )
 
@@ -63,6 +63,12 @@ type Game struct {
 	samples  [numSamples]float32
 	writePos int
 	filled   bool
+
+	// Neutral wand orientation (captured on first update). The sphere's
+	// rotation is the body-frame delta from neutral — so whatever pose the
+	// wand is in when the game starts becomes the sphere's "zero."
+	neutralQ   mgl32.Quat
+	calibrated bool
 
 	wantsChange bool
 
@@ -203,6 +209,7 @@ func (g *Game) Init(e *engine.Engine) error {
 	}
 
 	g.rotation = mgl32.Ident4()
+	g.calibrated = false
 
 	// Particle river
 	g.particles = make([]riverParticle, particleCount)
@@ -234,14 +241,15 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	if !g.pause.IsActive() {
 		s := g.wand.State()
 
-		roll := mgl32.DegToRad(s.Pitch)
-		pitch := mgl32.DegToRad(s.Roll)
-		yaw := mgl32.DegToRad(s.Yaw + 90)
-		g.rotation = mgl32.HomogRotate3DY(-yaw).Mul4(
-			mgl32.HomogRotate3DX(-pitch)).Mul4(
-			mgl32.HomogRotate3DZ(-roll))
+		wq := mgl32.Quat{W: s.Q.W, V: mgl32.Vec3{s.Q.X, s.Q.Y, s.Q.Z}}
+		if !g.calibrated {
+			g.neutralQ = wq
+			g.calibrated = true
+		}
+		qRel := g.neutralQ.Inverse().Mul(wq)
+		g.rotation = qRel.Mat4()
 
-		mag := float32(math.Sqrt(float64(s.AccelX*s.AccelX + s.AccelY*s.AccelY + s.AccelZ*s.AccelZ)))
+		mag := float32(math.Sqrt(float64(s.LinAccelX*s.LinAccelX + s.LinAccelY*s.LinAccelY + s.LinAccelZ*s.LinAccelZ)))
 		g.samples[g.writePos] = mag
 		g.writePos++
 		if g.writePos >= numSamples {
@@ -375,10 +383,11 @@ func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *s
 	}
 
 	s := g.wand.State()
+	roll, pitch, yaw := s.Euler()
 	lines := [3]string{
-		fmt.Sprintf("ROLL  %7.1f", s.Roll),
-		fmt.Sprintf("PITCH %7.1f", s.Pitch),
-		fmt.Sprintf("YAW   %7.1f", s.Yaw),
+		fmt.Sprintf("ROLL  %7.1f", roll),
+		fmt.Sprintf("PITCH %7.1f", pitch),
+		fmt.Sprintf("YAW   %7.1f", yaw),
 	}
 
 	const ps = float32(3)

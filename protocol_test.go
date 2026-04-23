@@ -7,10 +7,10 @@ import (
 
 func TestParsePacketRoundTrip(t *testing.T) {
 	want := State{
-		Roll: 45.5, Pitch: -12.3, Yaw: 180.0,
-		AccelX: 0.1, AccelY: -9.8, AccelZ: 0.5,
+		Q:         Quat{W: 0.707, X: 0.0, Y: 0.707, Z: 0.0},
+		LinAccelX: 0.1, LinAccelY: -0.5, LinAccelZ: 0.25,
 		GyroX: 10.0, GyroY: -5.0, GyroZ: 0.0,
-		Seq: 42,
+		Seq:   42,
 	}
 
 	data := EncodePacket(want)
@@ -24,15 +24,16 @@ func TestParsePacketRoundTrip(t *testing.T) {
 	}
 
 	fields := []struct {
-		name     string
+		name      string
 		got, want float32
 	}{
-		{"Roll", got.Roll, want.Roll},
-		{"Pitch", got.Pitch, want.Pitch},
-		{"Yaw", got.Yaw, want.Yaw},
-		{"AccelX", got.AccelX, want.AccelX},
-		{"AccelY", got.AccelY, want.AccelY},
-		{"AccelZ", got.AccelZ, want.AccelZ},
+		{"Q.W", got.Q.W, want.Q.W},
+		{"Q.X", got.Q.X, want.Q.X},
+		{"Q.Y", got.Q.Y, want.Q.Y},
+		{"Q.Z", got.Q.Z, want.Q.Z},
+		{"LinAccelX", got.LinAccelX, want.LinAccelX},
+		{"LinAccelY", got.LinAccelY, want.LinAccelY},
+		{"LinAccelZ", got.LinAccelZ, want.LinAccelZ},
 		{"GyroX", got.GyroX, want.GyroX},
 		{"GyroY", got.GyroY, want.GyroY},
 		{"GyroZ", got.GyroZ, want.GyroZ},
@@ -103,7 +104,6 @@ func TestEncodeAck(t *testing.T) {
 }
 
 func TestParseControlPacket(t *testing.T) {
-	// Valid discovery
 	pt, err := ParseControlPacket(EncodeDiscovery())
 	if err != nil {
 		t.Fatalf("discovery: %v", err)
@@ -112,7 +112,6 @@ func TestParseControlPacket(t *testing.T) {
 		t.Errorf("type = %d, want %d", pt, PacketTypeDiscovery)
 	}
 
-	// Valid ack
 	pt, err = ParseControlPacket(EncodeAck())
 	if err != nil {
 		t.Fatalf("ack: %v", err)
@@ -121,39 +120,58 @@ func TestParseControlPacket(t *testing.T) {
 		t.Errorf("type = %d, want %d", pt, PacketTypeAck)
 	}
 
-	// Too short
 	_, err = ParseControlPacket([]byte{0x57, 0x44})
 	if err != ErrPacketTooShort {
 		t.Errorf("short: got %v, want ErrPacketTooShort", err)
 	}
 
-	// Bad magic
-	_, err = ParseControlPacket([]byte{0xFF, 0x44, 0x01, 0x01})
+	_, err = ParseControlPacket([]byte{0xFF, 0x44, ProtocolVersion, 0x01})
 	if err != ErrBadMagic {
 		t.Errorf("magic: got %v, want ErrBadMagic", err)
 	}
 
-	// Bad version
 	_, err = ParseControlPacket([]byte{0x57, 0x44, 0xFF, 0x01})
 	if err != ErrBadVersion {
 		t.Errorf("version: got %v, want ErrBadVersion", err)
 	}
 
-	// Unknown type
-	_, err = ParseControlPacket([]byte{0x57, 0x44, 0x01, 0xFF})
+	_, err = ParseControlPacket([]byte{0x57, 0x44, ProtocolVersion, 0xFF})
 	if err != ErrUnknownPacketType {
 		t.Errorf("unknown: got %v, want ErrUnknownPacketType", err)
 	}
 }
 
-func TestParsePacketSpecialFloats(t *testing.T) {
-	s := State{Roll: 0, Pitch: -0, Yaw: math.Float32frombits(0)}
-	data := EncodePacket(s)
-	got, err := ParsePacket(data)
-	if err != nil {
-		t.Fatalf("ParsePacket: %v", err)
+func TestQuatIdentityEuler(t *testing.T) {
+	s := State{Q: QuatIdent()}
+	roll, pitch, yaw := s.Euler()
+	if math.Abs(float64(roll)) > 0.001 || math.Abs(float64(pitch)) > 0.001 || math.Abs(float64(yaw)) > 0.001 {
+		t.Errorf("identity Euler = (%v, %v, %v), want (0, 0, 0)", roll, pitch, yaw)
 	}
-	if got.Roll != 0 {
-		t.Errorf("Roll = %v, want 0", got.Roll)
+}
+
+func TestQuatMulConjugate(t *testing.T) {
+	// A 90° rotation about Y: w = cos(45°), y = sin(45°)
+	c := float32(math.Cos(math.Pi / 4))
+	sv := float32(math.Sin(math.Pi / 4))
+	q := Quat{W: c, Y: sv}
+	// q * q.Conjugate() should be identity.
+	id := q.Mul(q.Conjugate())
+	if math.Abs(float64(id.W-1)) > 1e-6 ||
+		math.Abs(float64(id.X)) > 1e-6 ||
+		math.Abs(float64(id.Y)) > 1e-6 ||
+		math.Abs(float64(id.Z)) > 1e-6 {
+		t.Errorf("q * conj(q) = %+v, want identity", id)
+	}
+}
+
+func TestQuatNormalize(t *testing.T) {
+	q := Quat{W: 2, X: 0, Y: 0, Z: 0}.Normalize()
+	if math.Abs(float64(q.W-1)) > 1e-6 {
+		t.Errorf("normalized = %+v, want W=1", q)
+	}
+	// zero -> identity
+	z := Quat{}.Normalize()
+	if z != (Quat{W: 1}) {
+		t.Errorf("zero-normalized = %+v, want identity", z)
 	}
 }

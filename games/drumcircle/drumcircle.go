@@ -18,17 +18,16 @@ import (
 )
 
 const (
-	maxEvents        = 32
-	burstCount       = 30
-	ringCount        = 20
-	maxTrails        = 200
-	accelThreshold   = 2.0  // m/s² (linear accel — gravity already removed by firmware)
-	accelCooldown    = 0.15 // seconds between hits
-	gyroThreshold    = 25.0 // °/s to start trail emission
-	eventLifetime    = 1.5  // seconds
-	trailLifetime    = 0.8  // seconds
-	ringExpandRate   = 5.0  // units/s outward velocity
-	burstDrag        = 0.96 // per-frame velocity multiplier
+	maxEvents      = 32
+	burstCount     = 30
+	ringCount      = 20
+	maxTrails      = 200
+	accelCooldown  = 0.15 // seconds between hits
+	gyroThreshold  = 25.0 // °/s to start trail emission
+	eventLifetime  = 1.5  // seconds
+	trailLifetime  = 0.8  // seconds
+	ringExpandRate = 5.0  // units/s outward velocity
+	burstDrag      = 0.96 // per-frame velocity multiplier
 )
 
 type particle struct {
@@ -40,12 +39,12 @@ type particle struct {
 }
 
 type hitEvent struct {
-	age       float32
+	age              float32
 	posX, posY, posZ float32
-	r, g, b   uint8
-	intensity float32
-	burst     []particle
-	ring      []particle
+	r, g, b          uint8
+	intensity        float32
+	burst            []particle
+	ring             []particle
 }
 
 type activeSound struct {
@@ -147,13 +146,29 @@ type Game struct {
 	sounds []activeSound
 	mixBuf []float32
 
+	// Tuning parameters
+	hitThreshold    float32
+	accelCooldown   float32
+	maxAccel        float32
+	visualExponent  float32
+	audioExponent   float32
+	gyroThreshold   float32
+
 	wantsChange bool
 	showDebug   bool
 	debugMeshes [4]*mesh.Mesh
 }
 
 func New(w *wand.Listener) *Game {
-	return &Game{wand: w}
+	return &Game{
+		wand:           w,
+		hitThreshold:   7.0,
+		accelCooldown:  0.15,
+		maxAccel:       15.0,
+		visualExponent: 2.5,
+		audioExponent:  0.5,
+		gyroThreshold:  25.0,
+	}
 }
 
 func (g *Game) WantsChangeGame() bool {
@@ -295,32 +310,37 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	cr, cg, cb := hsvToRGB(trailHue, trailSat, trailVal)
 
 	// Accel hit detection with cooldown
-	if accelMag > accelThreshold && (g.time-g.lastHitTime) > accelCooldown {
+	if accelMag > g.hitThreshold && (g.time-g.lastHitTime) > g.accelCooldown {
 		g.lastHitTime = g.time
-		intensity := (accelMag - accelThreshold) / 30.0
-		if intensity > 1 {
-			intensity = 1
-		}
 
-		// Face selection from wand tip direction → note. Rotate the +X
-		// body-frame tip vector by the wand orientation.
+		// Face selection from wand tip direction → note.
 		wq := mgl32.Quat{W: s.Q.W, V: mgl32.Vec3{s.Q.X, s.Q.Y, s.Q.Z}}
 		faceI := g.icosa.findFace(wq.Rotate(mgl32.Vec3{1, 0, 0}))
 		noteIdx := g.icosa.noteIdx[faceI]
 
-		g.spawnHitEvent(cr, cg, cb, intensity)
+		// 1. Calculate normalized intensity (0.0 to 1.0) within the active range
+		normalized := (accelMag - g.hitThreshold) / (g.maxAccel - g.hitThreshold)
+		if normalized > 1.0 {
+			normalized = 1.0
+		}
+
+		// 2. Use separate exponents for visual vs audio response curves
+		visualIntensity := float32(math.Pow(float64(normalized), float64(g.visualExponent)))
+		audioIntensity := float32(math.Pow(float64(normalized), float64(g.audioExponent)))
+
+		g.spawnHitEvent(cr, cg, cb, visualIntensity)
 
 		// Spawn audio tone at the face's note.
 		if g.stream != nil {
 			g.sounds = append(g.sounds, activeSound{
 				freq:      faceNotes[noteIdx],
-				amplitude: 0.3 + intensity*0.7,
+				amplitude: 0.3 + audioIntensity*0.7,
 			})
 		}
 	}
 
 	// Gyro trail emission
-	if gyroMag > gyroThreshold && len(g.trails) < maxTrails {
+	if gyroMag > g.gyroThreshold && len(g.trails) < maxTrails {
 		count := int(gyroMag/100.0) + 1
 		if count > 3 {
 			count = 3

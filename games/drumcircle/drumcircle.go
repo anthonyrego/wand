@@ -140,6 +140,7 @@ type Game struct {
 	icosa icosahedron
 
 	lastHitTime float32
+	lastAccelMag float32
 
 	// Audio
 	stream *sdl.AudioStream
@@ -310,7 +311,8 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	cr, cg, cb := hsvToRGB(trailHue, trailSat, trailVal)
 
 	// Accel hit detection with cooldown
-	if accelMag > g.hitThreshold && (g.time-g.lastHitTime) > g.accelCooldown {
+	// We detect a "hit" at the peak of the acceleration spike (when it starts to decrease).
+	if accelMag > g.hitThreshold && accelMag < g.lastAccelMag && (g.time-g.lastHitTime) > g.accelCooldown {
 		g.lastHitTime = g.time
 
 		// Face selection from wand tip direction → note.
@@ -338,6 +340,7 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 			})
 		}
 	}
+	g.lastAccelMag = accelMag
 
 	// Gyro trail emission
 	if gyroMag > g.gyroThreshold && len(g.trails) < maxTrails {

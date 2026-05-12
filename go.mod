@@ -5,6 +5,7 @@ go 1.24.1
 require (
 	github.com/Zyko0/go-sdl3 v0.0.0-20251211154533-f3a75a84a029
 	github.com/go-gl/mathgl v1.2.0
+	github.com/google/uuid v1.6.0
 )
 
 require (

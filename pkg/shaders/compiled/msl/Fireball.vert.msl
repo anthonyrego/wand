@@ -1,0 +1,33 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct FireballVertexUniforms
+{
+    float4x4 mvp;
+};
+
+struct main0_out
+{
+    float4 vertexColor [[user(locn0)]];
+    float2 texCoord [[user(locn1)]];
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    float3 position [[attribute(0)]];
+    float3 normal [[attribute(1)]];
+    float4 color [[attribute(2)]];
+    float2 texCoord [[attribute(3)]];
+};
+
+vertex main0_out main0(main0_in in [[stage_in]], constant FireballVertexUniforms& uniforms [[buffer(0)]])
+{
+    main0_out out = {};
+    out.vertexColor = in.color;
+    out.texCoord = in.texCoord;
+    out.gl_Position = uniforms.mvp * float4(in.position, 1.0);
+    return out;
+}

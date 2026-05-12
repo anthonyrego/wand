@@ -73,6 +73,22 @@ type SwirlDrawCall struct {
 	Time         float32
 }
 
+type FireballVertexUniforms struct {
+	MVP mgl32.Mat4
+}
+
+type FireballUniforms struct {
+	Time mgl32.Vec4 // x = elapsed seconds
+}
+
+type FireballDrawCall struct {
+	VertexBuffer *sdl.GPUBuffer
+	IndexBuffer  *sdl.GPUBuffer
+	IndexCount   uint32
+	MVP          mgl32.Mat4
+	Time         float32
+}
+
 type LitDrawCall struct {
 	VertexBuffer *sdl.GPUBuffer
 	IndexBuffer  *sdl.GPUBuffer
@@ -138,6 +154,9 @@ type Renderer struct {
 
 	// Swirl effect rendering
 	swirlPipeline *sdl.GPUGraphicsPipeline
+
+	// Fireball particle rendering
+	fireballPipeline *sdl.GPUGraphicsPipeline
 
 	// UI overlay rendering
 	uiPipeline *sdl.GPUGraphicsPipeline
@@ -402,6 +421,11 @@ func (r *Renderer) initLitPipeline() error {
 		return err
 	}
 
+	// --- Fireball pipeline ---
+	if err := r.initFireballPipeline(); err != nil {
+		return err
+	}
+
 	// --- Post-process pipeline ---
 	if err := r.initPostProcessPipeline(); err != nil {
 		return err
@@ -509,6 +533,75 @@ func (r *Renderer) initSwirlPipeline() error {
 	return nil
 }
 
+func (r *Renderer) initFireballPipeline() error {
+	device := r.window.Device()
+
+	fbVert, err := shaders.LoadShader(device, "Fireball.vert", 0, 1, 0, 0)
+	if err != nil {
+		return errors.New("failed to create fireball vertex shader: " + err.Error())
+	}
+	defer device.ReleaseShader(fbVert)
+
+	fbFrag, err := shaders.LoadShader(device, "Fireball.frag", 0, 1, 0, 0)
+	if err != nil {
+		return errors.New("failed to create fireball fragment shader: " + err.Error())
+	}
+	defer device.ReleaseShader(fbFrag)
+
+	pipeline, err := device.CreateGraphicsPipeline(&sdl.GPUGraphicsPipelineCreateInfo{
+		TargetInfo: sdl.GPUGraphicsPipelineTargetInfo{
+			ColorTargetDescriptions: []sdl.GPUColorTargetDescription{
+				{
+					Format: r.offscreenFormat,
+					BlendState: sdl.GPUColorTargetBlendState{
+						EnableBlend:        true,
+						SrcColorBlendfactor: sdl.GPU_BLENDFACTOR_SRC_ALPHA,
+						DstColorBlendfactor: sdl.GPU_BLENDFACTOR_ONE,
+						ColorBlendOp:        sdl.GPU_BLENDOP_ADD,
+						SrcAlphaBlendfactor: sdl.GPU_BLENDFACTOR_ONE,
+						DstAlphaBlendfactor: sdl.GPU_BLENDFACTOR_ONE,
+						AlphaBlendOp:        sdl.GPU_BLENDOP_ADD,
+					},
+				},
+			},
+			HasDepthStencilTarget: true,
+			DepthStencilFormat:    sdl.GPU_TEXTUREFORMAT_D32_FLOAT,
+		},
+		DepthStencilState: sdl.GPUDepthStencilState{
+			EnableDepthTest:  true,
+			EnableDepthWrite: false,
+			CompareOp:        sdl.GPU_COMPAREOP_GREATER_OR_EQUAL,
+		},
+		VertexInputState: sdl.GPUVertexInputState{
+			VertexBufferDescriptions: []sdl.GPUVertexBufferDescription{
+				{
+					Slot:      0,
+					InputRate: sdl.GPU_VERTEXINPUTRATE_VERTEX,
+					Pitch:     uint32(unsafe.Sizeof(LitVertex{})),
+				},
+			},
+			VertexAttributes: []sdl.GPUVertexAttribute{
+				{BufferSlot: 0, Format: sdl.GPU_VERTEXELEMENTFORMAT_FLOAT3, Location: 0, Offset: 0},
+				{BufferSlot: 0, Format: sdl.GPU_VERTEXELEMENTFORMAT_FLOAT3, Location: 1, Offset: 12},
+				{BufferSlot: 0, Format: sdl.GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, Location: 2, Offset: 24},
+				{BufferSlot: 0, Format: sdl.GPU_VERTEXELEMENTFORMAT_FLOAT2, Location: 3, Offset: 28},
+			},
+		},
+		RasterizerState: sdl.GPURasterizerState{
+			FillMode: sdl.GPU_FILLMODE_FILL,
+			CullMode: sdl.GPU_CULLMODE_NONE,
+		},
+		PrimitiveType:  sdl.GPU_PRIMITIVETYPE_TRIANGLELIST,
+		VertexShader:   fbVert,
+		FragmentShader: fbFrag,
+	})
+	if err != nil {
+		return errors.New("failed to create fireball pipeline: " + err.Error())
+	}
+	r.fireballPipeline = pipeline
+	return nil
+}
+
 func (r *Renderer) initPostProcessPipeline() error {
 	device := r.window.Device()
 
@@ -574,6 +667,10 @@ func (r *Renderer) SetHDR(enabled bool) error {
 		device.ReleaseGraphicsPipeline(r.swirlPipeline)
 		r.swirlPipeline = nil
 	}
+	if r.fireballPipeline != nil {
+		device.ReleaseGraphicsPipeline(r.fireballPipeline)
+		r.fireballPipeline = nil
+	}
 	if r.postProcessPipeline != nil {
 		device.ReleaseGraphicsPipeline(r.postProcessPipeline)
 		r.postProcessPipeline = nil
@@ -598,6 +695,9 @@ func (r *Renderer) SetHDR(enabled bool) error {
 		return err
 	}
 	if err := r.initSwirlPipeline(); err != nil {
+		return err
+	}
+	if err := r.initFireballPipeline(); err != nil {
 		return err
 	}
 	if err := r.initPostProcessPipeline(); err != nil {
@@ -1131,6 +1231,33 @@ func (r *Renderer) DrawSwirl(cmdBuf *sdl.GPUCommandBuffer, renderPass *sdl.GPURe
 	renderPass.DrawIndexedPrimitives(call.IndexCount, 1, 0, 0, 0)
 }
 
+func (r *Renderer) DrawFireball(cmdBuf *sdl.GPUCommandBuffer, renderPass *sdl.GPURenderPass, call FireballDrawCall) {
+	renderPass.BindGraphicsPipeline(r.fireballPipeline)
+
+	vertUniforms := FireballVertexUniforms{
+		MVP: call.MVP,
+	}
+	cmdBuf.PushVertexUniformData(0, unsafe.Slice(
+		(*byte)(unsafe.Pointer(&vertUniforms)), unsafe.Sizeof(vertUniforms),
+	))
+
+	fragUniforms := FireballUniforms{
+		Time: mgl32.Vec4{call.Time, 0, 0, 0},
+	}
+	cmdBuf.PushFragmentUniformData(0, unsafe.Slice(
+		(*byte)(unsafe.Pointer(&fragUniforms)), unsafe.Sizeof(fragUniforms),
+	))
+
+	renderPass.BindVertexBuffers([]sdl.GPUBufferBinding{
+		{Buffer: call.VertexBuffer, Offset: 0},
+	})
+	renderPass.BindIndexBuffer(&sdl.GPUBufferBinding{
+		Buffer: call.IndexBuffer, Offset: 0,
+	}, sdl.GPU_INDEXELEMENTSIZE_16BIT)
+
+	renderPass.DrawIndexedPrimitives(call.IndexCount, 1, 0, 0, 0)
+}
+
 func (r *Renderer) EndScenePass(renderPass *sdl.GPURenderPass) {
 	renderPass.End()
 }
@@ -1298,6 +1425,9 @@ func (r *Renderer) Destroy() {
 	}
 	if r.swirlPipeline != nil {
 		device.ReleaseGraphicsPipeline(r.swirlPipeline)
+	}
+	if r.fireballPipeline != nil {
+		device.ReleaseGraphicsPipeline(r.fireballPipeline)
 	}
 	if r.litPipeline != nil {
 		device.ReleaseGraphicsPipeline(r.litPipeline)

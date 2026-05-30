@@ -2,17 +2,33 @@ package games
 
 import (
 	"github.com/anthonyrego/wand"
+	"github.com/anthonyrego/wand/games/splash"
+	"github.com/anthonyrego/wand/pkg/control"
 	"github.com/anthonyrego/wand/pkg/engine"
 )
 
-// GameDef describes a game available in the selector.
+// GameDef describes a registered game. ID is a stable, author-assigned slug
+// used on the wire (web → switch); Name is the display name.
 type GameDef struct {
+	ID   string
 	Name string
 	New  func(w *wand.Listener) engine.Game
 }
 
-// GameSwitcher is optionally implemented by games that support
-// returning to the game selector via the pause menu.
-type GameSwitcher interface {
-	WantsChangeGame() bool
+// WebProvider is optionally implemented by a game that contributes a web page +
+// REST to the control server — its own settings, editable while it runs. Games
+// without one have no per-game page (the App installs nil on switch).
+type WebProvider interface {
+	WebModule() control.GameModule
+}
+
+// ControlBridge wires the App to the always-on control server and its shared
+// stores. The App polls Nav/Video each frame and swaps the active web module on
+// the server as games start and stop; Title/URL parameterize the splash.
+type ControlBridge struct {
+	Server *control.Server
+	Nav    *control.NavStore
+	Video  *control.VideoStore
+	Title  splash.TitleProvider
+	URL    string
 }

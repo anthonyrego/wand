@@ -49,7 +49,6 @@ type riverParticle struct {
 
 type Game struct {
 	wand     *wand.Listener
-	pause    *ui.PauseMenu
 	rotation mgl32.Mat4
 	time     float32
 
@@ -70,8 +69,6 @@ type Game struct {
 	neutralQ   mgl32.Quat
 	calibrated bool
 
-	wantsChange bool
-
 	debugMeshes [3]*mesh.Mesh
 }
 
@@ -79,13 +76,7 @@ func New(w *wand.Listener) *Game {
 	return &Game{wand: w}
 }
 
-func (g *Game) WantsChangeGame() bool {
-	return g.wantsChange
-}
-
 func (g *Game) Init(e *engine.Engine) error {
-	g.wantsChange = false
-
 	e.SetMouseMode(false)
 
 	e.Cam.Position = mgl32.Vec3{0, 0, 0}
@@ -100,12 +91,12 @@ func (g *Game) Init(e *engine.Engine) error {
 
 	type color3 struct{ r, g, b float64 }
 	axisColors := [6]color3{
-		{220, 130, 30},  // +X Orange
-		{160, 50, 200},  // -X Purple
-		{50, 100, 220},  // +Y Blue
-		{220, 200, 50},  // -Y Yellow
-		{220, 50, 50},   // +Z Red
-		{50, 180, 50},   // -Z Green
+		{220, 130, 30}, // +X Orange
+		{160, 50, 200}, // -X Purple
+		{50, 100, 220}, // +Y Blue
+		{220, 200, 50}, // -Y Yellow
+		{220, 50, 50},  // +Z Red
+		{50, 180, 50},  // -Z Green
 	}
 
 	var sphereVerts []renderer.LitVertex
@@ -172,35 +163,10 @@ func (g *Game) Init(e *engine.Engine) error {
 	}
 	g.tunnel = &mesh.Mesh{VertexBuffer: vb, IndexBuffer: ib, IndexCount: uint32(len(sphereIdxs))}
 
-	// Pause menu
-	resolutions := e.Win.DisplayModes()
-	g.pause = ui.NewPauseMenu(e.Rend, resolutions, e.Win.SupportsHDR())
-	startResIdx := 0
-	for i, res := range resolutions {
-		if res.W == e.Win.Width() && res.H == e.Win.Height() {
-			startResIdx = i
-			break
-		}
-	}
-	startRDIdx := 0
-	for i, v := range ui.RenderDistances {
-		if float32(v) == e.Cam.Far {
-			startRDIdx = i
-			break
-		}
-	}
-	g.pause.SetAppliedState(e.Win.IsFullscreen(), startResIdx, startRDIdx, e.Win.HDR())
-
 	// Lighting
-	if e.Win.HDR() {
-		e.LightUniforms.AmbientColor = mgl32.Vec4{0.3, 0.3, 0.3, 1.0}
-		e.LightUniforms.SunDirection = mgl32.Vec4{0, 0, -1, 0}
-		e.LightUniforms.SunColor = mgl32.Vec4{1.0, 1.0, 1.0, 2.0}
-	} else {
-		e.LightUniforms.AmbientColor = mgl32.Vec4{0.8, 0.8, 0.8, 1.0}
-		e.LightUniforms.SunDirection = mgl32.Vec4{0, 0, -1, 0}
-		e.LightUniforms.SunColor = mgl32.Vec4{1.0, 1.0, 1.0, 0.2}
-	}
+	e.LightUniforms.AmbientColor = mgl32.Vec4{0.8, 0.8, 0.8, 1.0}
+	e.LightUniforms.SunDirection = mgl32.Vec4{0, 0, -1, 0}
+	e.LightUniforms.SunColor = mgl32.Vec4{1.0, 1.0, 1.0, 0.2}
 
 	// Post-process
 	e.PostProcess = renderer.PostProcessUniforms{
@@ -221,53 +187,36 @@ func (g *Game) Init(e *engine.Engine) error {
 }
 
 func (g *Game) Update(e *engine.Engine, dt float32) bool {
-	action := g.pause.HandleInput(e.Input)
-	switch action {
-	case ui.ActionQuit:
-		return false
-	case ui.ActionApplySettings:
-		fs := g.pause.PendingFullscreen()
-		w, h := g.pause.PendingResolution()
-		rd := g.pause.PendingRenderDistance()
-		hdr := g.pause.PendingHDR()
-		e.ApplyDisplaySettings(fs, w, h, rd, hdr)
-		g.pause.ConfirmApply()
-	case ui.ActionChangeGame:
-		g.wantsChange = true
-	}
-
 	g.time += dt
 
-	if !g.pause.IsActive() {
-		s := g.wand.State()
+	s := g.wand.State()
 
-		wq := mgl32.Quat{W: s.Q.W, V: mgl32.Vec3{s.Q.X, s.Q.Y, s.Q.Z}}
-		if !g.calibrated {
-			g.neutralQ = wq
-			g.calibrated = true
-		}
-		qRel := g.neutralQ.Inverse().Mul(wq)
-		g.rotation = qRel.Mat4()
+	wq := mgl32.Quat{W: s.Q.W, V: mgl32.Vec3{s.Q.X, s.Q.Y, s.Q.Z}}
+	if !g.calibrated {
+		g.neutralQ = wq
+		g.calibrated = true
+	}
+	qRel := g.neutralQ.Inverse().Mul(wq)
+	g.rotation = qRel.Mat4()
 
-		mag := float32(math.Sqrt(float64(s.LinAccelX*s.LinAccelX + s.LinAccelY*s.LinAccelY + s.LinAccelZ*s.LinAccelZ)))
-		g.samples[g.writePos] = mag
-		g.writePos++
-		if g.writePos >= numSamples {
-			g.writePos = 0
-			g.filled = true
-		}
+	mag := float32(math.Sqrt(float64(s.LinAccelX*s.LinAccelX + s.LinAccelY*s.LinAccelY + s.LinAccelZ*s.LinAccelZ)))
+	g.samples[g.writePos] = mag
+	g.writePos++
+	if g.writePos >= numSamples {
+		g.writePos = 0
+		g.filled = true
+	}
 
-		alpha := float32(1.0) - float32(math.Exp(float64(-lerpFactor*dt)))
-		for i := range g.particles {
-			p := &g.particles[i]
-			p.X += p.VelX * dt
-			if p.X > riverXMax+0.5 {
-				g.spawnParticle(p, false)
-			}
-			targetY := g.sampleWaveAtX(p.X)
-			p.displY += (targetY - p.displY) * alpha
-			p.Y = p.BaseY + p.displY
+	alpha := float32(1.0) - float32(math.Exp(float64(-lerpFactor*dt)))
+	for i := range g.particles {
+		p := &g.particles[i]
+		p.X += p.VelX * dt
+		if p.X > riverXMax+0.5 {
+			g.spawnParticle(p, false)
 		}
+		targetY := g.sampleWaveAtX(p.X)
+		p.displY += (targetY - p.displY) * alpha
+		p.Y = p.BaseY + p.displY
 	}
 
 	return true
@@ -369,11 +318,6 @@ func (g *Game) renderParticleRiver(e *engine.Engine, frame renderer.RenderFrame)
 }
 
 func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *sdl.GPUTexture) {
-	if g.pause.IsActive() {
-		g.pause.Render(e.Rend, cmdBuf, target, e.Win.Width(), e.Win.Height())
-		return
-	}
-
 	// Release previous frame's debug meshes.
 	for i, m := range g.debugMeshes {
 		if m != nil {
@@ -413,7 +357,6 @@ func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *s
 }
 
 func (g *Game) Destroy(e *engine.Engine) {
-	g.pause.Destroy(e.Rend)
 	g.tunnel.Destroy(e.Rend)
 	if g.riverVB != nil {
 		e.Rend.ReleaseBuffer(g.riverVB)

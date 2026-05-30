@@ -2,8 +2,6 @@ package profile
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,56 +94,5 @@ func TestStorePersistsAcrossLoad(t *testing.T) {
 	}
 	if p.OwnerName != "Emma" {
 		t.Fatalf("on-disk ownerName=%q, want %q", p.OwnerName, "Emma")
-	}
-}
-
-func TestServerGetSet(t *testing.T) {
-	s, err := Load(t.TempDir())
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	srv := httptest.NewServer(NewServer(s, 0).Handler())
-	defer srv.Close()
-
-	// POST a name.
-	resp, err := http.Post(srv.URL+"/api/profile", "application/json",
-		strings.NewReader(`{"name":"Emma"}`))
-	if err != nil {
-		t.Fatalf("POST: %v", err)
-	}
-	var set profileDTO
-	if err := json.NewDecoder(resp.Body).Decode(&set); err != nil {
-		t.Fatalf("decode POST: %v", err)
-	}
-	resp.Body.Close()
-	if set.Name != "Emma" || set.Title != "EMMA'S WAND" {
-		t.Fatalf("POST result: %+v", set)
-	}
-	if s.Name() != "Emma" {
-		t.Fatalf("store not updated: %q", s.Name())
-	}
-
-	// GET reflects it.
-	resp, err = http.Get(srv.URL + "/api/profile")
-	if err != nil {
-		t.Fatalf("GET: %v", err)
-	}
-	var get profileDTO
-	if err := json.NewDecoder(resp.Body).Decode(&get); err != nil {
-		t.Fatalf("decode GET: %v", err)
-	}
-	resp.Body.Close()
-	if get.Name != "Emma" || get.Title != "EMMA'S WAND" {
-		t.Fatalf("GET result: %+v", get)
-	}
-
-	// Index page is served.
-	resp, err = http.Get(srv.URL + "/")
-	if err != nil {
-		t.Fatalf("GET /: %v", err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET / status = %d", resp.StatusCode)
 	}
 }

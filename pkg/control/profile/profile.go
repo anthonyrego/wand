@@ -1,28 +1,24 @@
 // Package profile stores the wand's personalization — the owner's name — and
 // derives the on-screen title from it ("EMMA'S WAND"). The name persists to
 // ~/.wand/profile.json and is editable at runtime from any device on the LAN
-// via the browser-based admin in server.go, mirroring the flashcard deck's
-// manage-from-your-phone pattern.
+// via the always-on control server (pkg/control).
 //
 // The Store is the single source of truth, shared between the HTTP server
-// (which writes the name) and the game-loop selector (which reads it). A
-// revision counter lets the selector cheaply detect edits and rebuild its
-// title text live.
+// (which writes the name) and the game loop (which reads it). A revision
+// counter lets readers cheaply detect edits and rebuild title text live.
 package profile
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 )
 
 const (
-	fileName    = "profile.json"
-	maxNameLen  = 24   // keeps the title readable and on-screen in the 8x8 font
-	DefaultPort = 8090 // distinct from the flashcard admin (8080)
+	fileName   = "profile.json"
+	maxNameLen = 24 // keeps the title readable and on-screen in the 8x8 font
 )
 
 // Store holds the owner name and persists it to disk. All access is guarded by
@@ -74,8 +70,8 @@ func (s *Store) Revision() uint64 {
 	return s.revision
 }
 
-// Title returns the personalized selector title in the all-caps style of the
-// rest of the UI: "EMMA'S WAND", or plain "WAND" when no name is set.
+// Title returns the personalized title in the all-caps style of the rest of the
+// UI: "EMMA'S WAND", or plain "WAND" when no name is set.
 func (s *Store) Title() string {
 	return Title(s.Name())
 }
@@ -110,7 +106,7 @@ func (s *Store) saveLocked() {
 	_ = os.Rename(tmp, s.path)
 }
 
-// Title derives the all-caps selector title from a raw owner name.
+// Title derives the all-caps title from a raw owner name.
 func Title(name string) string {
 	name = CleanName(name)
 	if name == "" {
@@ -156,14 +152,4 @@ func Dir() string {
 		return ".wand"
 	}
 	return filepath.Join(home, ".wand")
-}
-
-// Port is the admin server port: $WAND_CONFIG_PORT, else DefaultPort.
-func Port() int {
-	if p := os.Getenv("WAND_CONFIG_PORT"); p != "" {
-		if n, err := strconv.Atoi(p); err == nil && n > 0 && n < 65536 {
-			return n
-		}
-	}
-	return DefaultPort
 }

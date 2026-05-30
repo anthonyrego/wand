@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Wand</title>
+<style>
+  :root { --bg:#11131a; --panel:#1b1e29; --panel2:#232737; --fg:#e8eaf2; --muted:#8b91a6;
+          --accent:#f0aa5a; --accent2:#5a9cf0; --ok:#5ad08a; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--fg);
+         font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         display:flex; flex-direction:column; }
+  header { padding:18px 20px 14px;
+           background:linear-gradient(135deg, #6a32c8, #c8823c);
+           box-shadow:0 2px 12px rgba(0,0,0,.4); }
+  header h1 { margin:0; font-size:22px; letter-spacing:2px; }
+  header .sub { color:rgba(255,255,255,.82); font-size:13px; margin-top:2px; }
+  nav { display:flex; gap:6px; padding:10px 16px; overflow-x:auto; }
+  nav button { flex:0 0 auto; background:var(--panel); color:var(--fg); border:none;
+               padding:10px 16px; border-radius:999px; font-size:15px; cursor:pointer; }
+  nav button.active { background:var(--accent); color:#1a1206; font-weight:600; }
+  main { flex:1; padding:8px 16px 24px; overflow:auto; }
+  .tab { display:none; }
+  .tab.active { display:block; }
+  .card { background:var(--panel); border-radius:14px; padding:16px; margin:0 0 14px; }
+  .gamebtn { display:flex; align-items:center; justify-content:space-between;
+             width:100%; background:var(--panel2); color:var(--fg); border:none;
+             padding:16px 18px; border-radius:12px; font-size:17px; margin-bottom:10px;
+             cursor:pointer; text-align:left; }
+  .gamebtn .dot { width:10px; height:10px; border-radius:50%; background:transparent; }
+  .gamebtn.current { outline:2px solid var(--ok); }
+  .gamebtn.current .dot { background:var(--ok); }
+  label { display:block; color:var(--muted); font-size:13px; margin:12px 0 4px; }
+  input[type=text], input[type=number], select {
+    width:100%; background:var(--panel2); color:var(--fg); border:1px solid #2c3144;
+    border-radius:10px; padding:12px; font-size:16px; }
+  .row { display:flex; gap:10px; }
+  .row > div { flex:1; }
+  .toggle { display:flex; align-items:center; gap:10px; margin-top:14px; }
+  .toggle input { width:22px; height:22px; }
+  button.primary { margin-top:16px; width:100%; background:var(--accent); color:#1a1206;
+                   border:none; padding:14px; border-radius:12px; font-size:16px;
+                   font-weight:600; cursor:pointer; }
+  button.ghost { background:var(--panel2); color:var(--fg); border:none; padding:12px;
+                 border-radius:12px; font-size:15px; cursor:pointer; width:100%; margin-top:8px; }
+  .preview { color:var(--accent); font-size:15px; margin-top:8px; min-height:20px; }
+  .hint { color:var(--muted); font-size:13px; }
+  iframe { width:100%; height:72vh; border:none; border-radius:14px; background:var(--panel); }
+  .empty { color:var(--muted); text-align:center; padding:40px 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">WAND</h1>
+  <div class="sub">Remote control · this device is the TV</div>
+</header>
+<nav>
+  <button data-tab="games" class="active">Games</button>
+  <button data-tab="game">Now Playing</button>
+  <button data-tab="settings">Settings</button>
+</nav>
+<main>
+  <section id="tab-games" class="tab active">
+    <div class="card">
+      <div id="gamelist"></div>
+      <button class="ghost" id="homeBtn">Stop · back to splash</button>
+    </div>
+  </section>
+
+  <section id="tab-game" class="tab">
+    <div id="gameframeWrap"></div>
+  </section>
+
+  <section id="tab-settings" class="tab">
+    <div class="card">
+      <label for="nameInput">Wand owner's name</label>
+      <input type="text" id="nameInput" maxlength="24" placeholder="(none)">
+      <div class="preview" id="namePreview"></div>
+      <button class="primary" id="nameSave">Save name</button>
+      <div class="hint" style="margin-top:10px">Shows on the splash as "NAME'S WAND".</div>
+    </div>
+
+    <div class="card">
+      <div class="toggle">
+        <input type="checkbox" id="fullscreen">
+        <label for="fullscreen" style="margin:0">Fullscreen</label>
+      </div>
+      <label for="res">Resolution</label>
+      <select id="res"></select>
+      <label for="rd">Draw distance</label>
+      <select id="rd">
+        <option value="500">500</option>
+        <option value="750">750</option>
+        <option value="1000">1000</option>
+        <option value="1250">1250</option>
+        <option value="1500">1500</option>
+        <option value="2000">2000</option>
+      </select>
+      <button class="primary" id="videoSave">Apply &amp; save</button>
+      <div class="hint" style="margin-top:10px">Applies on the TV when you save.</div>
+    </div>
+  </section>
+</main>
+
+<script>
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const res = await fetch(path, opts);
+  if (!res.ok) throw new Error(method + " " + path + " -> " + res.status);
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("application/json") ? res.json() : null;
+}
+
+// --- tabs ---
+const tabs = document.querySelectorAll("nav button");
+tabs.forEach(b => b.addEventListener("click", () => selectTab(b.dataset.tab)));
+function selectTab(name) {
+  tabs.forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll(".tab").forEach(s => s.classList.toggle("active", s.id === "tab-" + name));
+  if (name === "game") ensureFrame();
+}
+
+// --- games + now playing ---
+// current/hasPage are the SERVER-CONFIRMED state (the game loop performs a
+// requested switch a frame later, then sets these), so the iframe is only loaded
+// once the active game's page is actually live. pendingId tracks an in-flight
+// switch for the "Starting…" state and the burst poll.
+let games = [], current = "splash", hasPage = false, pendingId = null, frameSrcId = null;
+
+async function loadGames() {
+  games = await api("GET", "/api/games") || [];
+  renderGames();
+}
+function renderGames() {
+  const list = document.getElementById("gamelist");
+  list.innerHTML = "";
+  games.forEach(g => {
+    const b = document.createElement("button");
+    b.className = "gamebtn" + (g.id === current ? " current" : "");
+    b.innerHTML = "<span>" + g.name + "</span><span class='dot'></span>";
+    b.addEventListener("click", () => switchTo(g.id));
+    list.appendChild(b);
+  });
+}
+async function switchTo(id) {
+  await api("POST", "/api/current", { id });
+  pendingId = (id === "splash") ? null : id;
+  if (id !== "splash") selectTab("game");
+  burstPoll(); // confirm quickly, then the iframe loads
+}
+document.getElementById("homeBtn").addEventListener("click", () => switchTo("splash"));
+
+async function refreshCurrent() {
+  try {
+    const c = await api("GET", "/api/current");
+    if (!c) return;
+    if (c.current !== current || c.hasPage !== hasPage) {
+      current = c.current; hasPage = c.hasPage;
+      renderGames(); syncFrame();
+    }
+    if (pendingId && current === pendingId) pendingId = null;
+  } catch (e) {}
+}
+// After a switch, poll quickly (~6s) until the backend confirms, then stop.
+function burstPoll() {
+  let n = 0;
+  const t = setInterval(async () => {
+    n++;
+    await refreshCurrent();
+    if (!pendingId || n > 30) clearInterval(t);
+  }, 200);
+}
+
+function frameMsg(html) { return "<div class='empty'>" + html + "</div>"; }
+function ensureFrame() { syncFrame(); }
+function syncFrame() {
+  const wrap = document.getElementById("gameframeWrap");
+  if (current === "splash") {
+    frameSrcId = null;
+    wrap.innerHTML = frameMsg(pendingId ? "Starting…" : "No game running.<br>Pick one from the Games tab.");
+    return;
+  }
+  if (!hasPage) {
+    frameSrcId = null;
+    wrap.innerHTML = frameMsg("This game has no settings.");
+    return;
+  }
+  if (frameSrcId !== current) { // (re)load only when the active game changes
+    frameSrcId = current;
+    wrap.innerHTML = "<iframe src='/game/?t=" + Date.now() + "'></iframe>";
+  }
+}
+
+// --- name ---
+function titleOf(n) { n = (n||"").trim(); return n ? n.toUpperCase() + "'S WAND" : "WAND"; }
+async function loadName() {
+  const p = await api("GET", "/api/profile");
+  document.getElementById("nameInput").value = p.name || "";
+  document.getElementById("namePreview").textContent = p.title || "WAND";
+  document.getElementById("title").textContent = p.title || "WAND";
+}
+document.getElementById("nameInput").addEventListener("input", e => {
+  document.getElementById("namePreview").textContent = titleOf(e.target.value);
+});
+document.getElementById("nameSave").addEventListener("click", async () => {
+  const p = await api("POST", "/api/profile", { name: document.getElementById("nameInput").value });
+  document.getElementById("nameInput").value = p.name || "";
+  document.getElementById("namePreview").textContent = p.title || "WAND";
+  document.getElementById("title").textContent = p.title || "WAND";
+});
+
+// --- video ---
+async function loadVideo() {
+  const [v, modes] = await Promise.all([
+    api("GET", "/api/video"),
+    api("GET", "/api/video/modes").catch(() => []),
+  ]);
+  document.getElementById("fullscreen").checked = !!v.fullscreen;
+
+  const sel = document.getElementById("res");
+  const list = Array.isArray(modes) ? modes.slice() : [];
+  // Keep the current size selectable even if the display didn't enumerate it.
+  if (!list.some(m => m.w === v.windowWidth && m.h === v.windowHeight)) {
+    list.unshift({ w: v.windowWidth, h: v.windowHeight });
+  }
+  sel.innerHTML = "";
+  list.forEach(m => {
+    const o = document.createElement("option");
+    o.value = m.w + "x" + m.h;
+    o.textContent = m.w + " × " + m.h;
+    sel.appendChild(o);
+  });
+  sel.value = v.windowWidth + "x" + v.windowHeight;
+
+  document.getElementById("rd").value = String(Math.round(v.renderDistance));
+}
+document.getElementById("videoSave").addEventListener("click", async () => {
+  const [sw, sh] = document.getElementById("res").value.split("x").map(n => parseInt(n, 10));
+  const body = {
+    fullscreen: document.getElementById("fullscreen").checked,
+    windowWidth: sw || 1280,
+    windowHeight: sh || 720,
+    renderDistance: parseFloat(document.getElementById("rd").value) || 1500,
+  };
+  const v = await api("POST", "/api/video", body);
+  document.getElementById("res").value = v.windowWidth + "x" + v.windowHeight;
+});
+
+// --- boot ---
+loadGames(); loadName(); loadVideo(); refreshCurrent();
+setInterval(refreshCurrent, 2000);
+</script>
+</body>
+</html>

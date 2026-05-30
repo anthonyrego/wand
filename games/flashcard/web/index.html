@@ -23,15 +23,6 @@
     color: var(--text);
     -webkit-text-size-adjust: 100%;
   }
-  header {
-    position: sticky; top: 0; z-index: 5;
-    padding: 16px 16px calc(16px + env(safe-area-inset-top));
-    padding-top: calc(16px + env(safe-area-inset-top));
-    background: linear-gradient(135deg, var(--accent2), var(--accent));
-    box-shadow: 0 2px 12px rgba(0,0,0,.4);
-  }
-  header h1 { margin: 0; font-size: 20px; letter-spacing: .5px; }
-  header p { margin: 4px 0 0; font-size: 13px; opacity: .85; }
   main { padding: 16px; max-width: 720px; margin: 0 auto; }
 
   .nav { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
@@ -115,11 +106,6 @@
 </style>
 </head>
 <body>
-<header>
-  <h1>🪄 Wand Flashcards</h1>
-  <p>Upload cards, add photos, and choose what shows on screen.</p>
-</header>
-
 <main>
   <div class="nav">
     <div class="navrow">
@@ -163,6 +149,9 @@ function toast(msg) {
   setTimeout(() => t.classList.remove("show"), 2600);
 }
 
+// All REST lives under the control server's active-game prefix.
+const BASE = "/api/game";
+
 async function api(method, path, body, isForm) {
   const opts = { method };
   if (isForm) opts.body = body;
@@ -170,7 +159,7 @@ async function api(method, path, body, isForm) {
     opts.headers = { "Content-Type": "application/json" };
     opts.body = JSON.stringify(body);
   }
-  const res = await fetch(path, opts);
+  const res = await fetch(BASE + path, opts);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(text || (method + " " + path + " failed"));
@@ -193,7 +182,7 @@ function currentCard() {
 }
 
 function imgURL(cardId, photoId) {
-  return "/api/cards/" + cardId + "/photos/" + photoId + "/image";
+  return BASE + "/api/cards/" + cardId + "/photos/" + photoId + "/image";
 }
 
 function render() {

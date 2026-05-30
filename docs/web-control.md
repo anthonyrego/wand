@@ -1,6 +1,9 @@
 # TODO / Future: Full web control
 
-**Status:** idea, not scheduled. Recorded for later — do not implement yet.
+**Status:** implemented. The unified `pkg/control` server (port 8080), the
+boot/QR splash, web-driven game switching, per-game pages (flashcards + drum
+circle), web video settings, Esc-×3 quit, and HDR removal are all in. Decisions
+are recorded below for context.
 
 ## Vision
 
@@ -44,37 +47,63 @@ page is the "remote control" for everything around the game.
   persisted today. `pkg/settings` has `Load`/`Save` to JSON but they're currently
   unused — wiring persistence in is part of this work.
 
+## Decisions
+
+These resolve the earlier open questions; build to these.
+
+- **Discovery: LAN IP for now, plus a QR code.** The on-screen splash shows the
+  LAN-IP URL (best-effort via `profile.LocalIP()`) *and* a QR code encoding it so a
+  parent can open it from a phone without typing. No mDNS for now (revisit if DHCP
+  churn becomes annoying).
+- **Security: none.** Home LAN toddler toy; no auth. Server binds all interfaces —
+  state the assumption in the README/server doc and move on.
+- **Per-game pages.** Not one flat SPA. The control site is a shell (Games / Name /
+  Video) plus a dedicated page per active game for that game's own settings, which
+  are editable *while the game is running*. Flashcards is the existing precedent —
+  its admin becomes the flashcard game page under the unified server.
+- **Canonical port: 8080.** The unified always-on server lives on 8080 (the port
+  parents may already know from the flashcard "open on your phone" flow); this is
+  the address shown on the splash. `pkg/profile`'s 8090 server folds into it.
+- **No auto-launch.** At boot the screen shows only the connect/QR splash — no game
+  (not even last-played) runs until a parent picks one from the web shell. Choosing
+  a game from the shell is the *only* way into a game; quitting back returns to the
+  splash.
+- **No keyboard control.** The keyboard is no longer an input/control surface at
+  all. The *only* key handling left: pressing **Escape three times** quits the app,
+  with on-screen feedback each press (e.g. "Press Esc 2 more times to quit…",
+  counter resets after a short idle). Everything else is web-driven.
+- **Video settings: apply on save.** No live-drag preview; the page POSTs a full
+  settings payload and the loop applies it on the next frame via
+  `ApplyDisplaySettings`. Persist via `pkg/settings`.
+- **Remove HDR.** Drop HDR as an exposed option; it stays off. Remove it from the
+  settings UI/schema now; rip out the post-processing feature code in a later pass.
+
 ## Sketch of the work
 
 1. **One control server, always on.** Promote a single server (generalize
    `pkg/profile`'s, or a new `pkg/control`) started in `cmd/play/main.go` for the
-   app's whole life. Decide whether the flashcard admin folds into it or stays a
-   per-game sub-page it links to. Pick one canonical port (the on-screen URL).
+   app's whole life. The flashcard admin folds in as the flashcard game's per-game
+   page. Canonical port **8080** (the on-screen URL); `pkg/profile`'s 8090 server
+   folds into it.
 2. **Command channel, loop-thread-safe.** Web handlers must not touch SDL/GPU.
    Mirror the flashcard pattern: handlers mutate a mutex-guarded state + bump a
    revision; the game loop reads snapshots each frame and performs the actual
    switch / `ApplyDisplaySettings` / GPU work on its own thread.
 3. **Game registry exposed over REST.** `GameDef` list → `GET /api/games`;
-   `POST /api/current {id}` drives `App.switchTo`. The on-screen selector becomes
-   optional (keep as a fallback, or replace with a "connect to …" splash).
-4. **Settings model + persistence.** Define a settings schema (display + per-game),
-   serve get/set, and actually persist via `pkg/settings` (or an extension). Each
-   game advertises its tunables (a small descriptor) so the page renders controls
-   generically.
-5. **Boot splash.** When no display interaction is expected, the launch screen is
-   just the connect URL (reuse the flashcard "OPEN ON YOUR PHONE" overlay style).
+   `POST /api/current {id}` drives `App.switchTo`. The in-app selector screen is
+   replaced by the connect/QR splash — game choice moves entirely to the web shell.
+4. **Per-game settings, advertised + persisted.** Each game advertises its tunables
+   (a small descriptor) so its page renders controls generically and edits apply
+   live while it runs. Display settings use the same get/set + `pkg/settings`
+   persistence, applied on save. (No HDR field.)
+5. **Boot/idle splash.** The launch screen is the connect URL + QR code (reuse the
+   flashcard "OPEN ON YOUR PHONE" overlay style). Esc-×3-to-quit feedback overlays
+   on top of whatever is showing.
 
-## Open questions
+## Notes / things to verify during build
 
-- **Discovery / fixed address.** The on-screen URL uses the LAN IP (best-effort via
-  `profile.LocalIP()`), which can change with DHCP. Consider mDNS (`wand.local`) or
-  a QR code so the address is stable and easy to open.
-- **Security.** It's a toddler toy on a home LAN, so likely no auth — but the server
-  binds all interfaces. Note the assumption explicitly if we keep it open.
-- **One page vs. per-game pages.** A single SPA with tabs (Games / Settings / Name /
-  Flashcards) vs. linked sub-pages. Single SPA is probably cleaner for parents.
-- **Keep keyboard as fallback?** Useful for dev and when no phone is handy. Probably
-  yes, at least behind a flag.
-- **Live vs. apply-on-save** for video settings (resolution changes recreate the
-  swapchain — already handled by `ApplyDisplaySettings`, but confirm it's safe to
-  trigger from a revision diff mid-frame).
+- **`ApplyDisplaySettings` mid-frame.** Resolution changes recreate the swapchain;
+  it's already centralized there, but confirm it's safe to trigger from a revision
+  diff between frames (apply-on-save makes this once-per-save, not per-drag).
+- **Esc-×3 ergonomics.** Pick the reset window (e.g. ~1.5s of no Esc resets the
+  count) and where the counter renders so it's visible over any game/splash.

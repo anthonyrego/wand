@@ -18,7 +18,14 @@ func newTestServer(t *testing.T) (*httptest.Server, *store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(newServer(st, 0).http.Handler)
+	m := newModule(st)
+	// Mirror how the control server exposes the module, but flattened so the
+	// existing test URLs (/, /api/...) work without the /game and /api/game
+	// prefixes. The REST mux already carries the /api/ prefix on its patterns.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", m.Page)
+	mux.Handle("/api/", m.mux)
+	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	return ts, st
 }

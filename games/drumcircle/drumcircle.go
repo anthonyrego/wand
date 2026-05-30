@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthonyrego/wand"
 	"github.com/anthonyrego/wand/pkg/audio"
+	"github.com/anthonyrego/wand/pkg/control"
 	"github.com/anthonyrego/wand/pkg/engine"
 	"github.com/anthonyrego/wand/pkg/mesh"
 	"github.com/anthonyrego/wand/pkg/renderer"
@@ -22,8 +23,6 @@ const (
 	burstCount     = 30
 	ringCount      = 20
 	maxTrails      = 200
-	accelCooldown  = 0.15 // seconds between hits
-	gyroThreshold  = 25.0 // °/s to start trail emission
 	eventLifetime  = 1.5  // seconds
 	trailLifetime  = 0.8  // seconds
 	ringExpandRate = 5.0  // units/s outward velocity
@@ -124,9 +123,8 @@ func (ico *icosahedron) findFace(forward mgl32.Vec3) int {
 }
 
 type Game struct {
-	wand  *wand.Listener
-	pause *ui.PauseMenu
-	time  float32
+	wand *wand.Listener
+	time float32
 
 	ground *mesh.Mesh
 	events []hitEvent
@@ -139,7 +137,7 @@ type Game struct {
 
 	icosa icosahedron
 
-	lastHitTime float32
+	lastHitTime  float32
 	lastAccelMag float32
 
 	// Audio
@@ -147,33 +145,23 @@ type Game struct {
 	sounds []activeSound
 	mixBuf []float32
 
-	// Tuning parameters
-	hitThreshold    float32
-	accelCooldown   float32
-	maxAccel        float32
-	visualExponent  float32
-	audioExponent   float32
-	gyroThreshold   float32
+	// Tuning parameters, web-editable while the game runs (see tuning.go).
+	tuning tuning
 
-	wantsChange bool
 	showDebug   bool
 	debugMeshes [4]*mesh.Mesh
 }
 
 func New(w *wand.Listener) *Game {
-	return &Game{
-		wand:           w,
-		hitThreshold:   7.0,
-		accelCooldown:  0.15,
-		maxAccel:       15.0,
-		visualExponent: 2.5,
-		audioExponent:  0.5,
-		gyroThreshold:  25.0,
-	}
+	g := &Game{wand: w}
+	g.tuning.set(7.0, 0.15, 15.0, 2.5, 0.5, 25.0)
+	return g
 }
 
-func (g *Game) WantsChangeGame() bool {
-	return g.wantsChange
+// WebModule exposes drum-circle's tunables as a generic settings page on the
+// control server, editable live while the game runs.
+func (g *Game) WebModule() control.GameModule {
+	return control.NewSettingsModule("DRUM CIRCLE", &g.tuning)
 }
 
 func hsvToRGB(h, s, v float32) (uint8, uint8, uint8) {
@@ -204,8 +192,6 @@ func hsvToRGB(h, s, v float32) (uint8, uint8, uint8) {
 }
 
 func (g *Game) Init(e *engine.Engine) error {
-	g.wantsChange = false
-
 	e.SetMouseMode(false)
 
 	e.Cam.Position = mgl32.Vec3{0, 3, 5}
@@ -220,25 +206,6 @@ func (g *Game) Init(e *engine.Engine) error {
 	}
 
 	g.icosa = buildIcosa()
-
-	// Pause menu
-	resolutions := e.Win.DisplayModes()
-	g.pause = ui.NewPauseMenu(e.Rend, resolutions, e.Win.SupportsHDR())
-	startResIdx := 0
-	for i, res := range resolutions {
-		if res.W == e.Win.Width() && res.H == e.Win.Height() {
-			startResIdx = i
-			break
-		}
-	}
-	startRDIdx := 0
-	for i, v := range ui.RenderDistances {
-		if float32(v) == e.Cam.Far {
-			startRDIdx = i
-			break
-		}
-	}
-	g.pause.SetAppliedState(e.Win.IsFullscreen(), startResIdx, startRDIdx, e.Win.HDR())
 
 	// Lighting: near-total darkness, only point lights illuminate
 	e.LightUniforms.AmbientColor = mgl32.Vec4{0.08, 0.08, 0.08, 1.0}
@@ -268,32 +235,17 @@ func (g *Game) Init(e *engine.Engine) error {
 }
 
 func (g *Game) Update(e *engine.Engine, dt float32) bool {
-	action := g.pause.HandleInput(e.Input)
-	switch action {
-	case ui.ActionQuit:
-		return false
-	case ui.ActionApplySettings:
-		fs := g.pause.PendingFullscreen()
-		w, h := g.pause.PendingResolution()
-		rd := g.pause.PendingRenderDistance()
-		hdr := g.pause.PendingHDR()
-		e.ApplyDisplaySettings(fs, w, h, rd, hdr)
-		g.pause.ConfirmApply()
-	case ui.ActionChangeGame:
-		g.wantsChange = true
-	}
-
 	if e.Input.IsKeyPressed(sdl.K_GRAVE) {
 		g.showDebug = !g.showDebug
 	}
 
 	g.time += dt
 
-	if g.pause.IsActive() {
-		return true
-	}
-
 	s := g.wand.State()
+
+	// Read the web-tunable parameters once per frame (CPU snapshot; the HTTP
+	// handler mutates them on another goroutine under the same lock).
+	tn := g.tuning.snapshot()
 
 	// Linear accel is gravity-compensated by the firmware — magnitude is
 	// zero when the wand is still, regardless of orientation.
@@ -312,7 +264,7 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 
 	// Accel hit detection with cooldown
 	// We detect a "hit" at the peak of the acceleration spike (when it starts to decrease).
-	if accelMag > g.hitThreshold && accelMag < g.lastAccelMag && (g.time-g.lastHitTime) > g.accelCooldown {
+	if accelMag > tn.hitThreshold && accelMag < g.lastAccelMag && (g.time-g.lastHitTime) > tn.accelCooldown {
 		g.lastHitTime = g.time
 
 		// Face selection from wand tip direction → note.
@@ -321,14 +273,14 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 		noteIdx := g.icosa.noteIdx[faceI]
 
 		// 1. Calculate normalized intensity (0.0 to 1.0) within the active range
-		normalized := (accelMag - g.hitThreshold) / (g.maxAccel - g.hitThreshold)
+		normalized := (accelMag - tn.hitThreshold) / (tn.maxAccel - tn.hitThreshold)
 		if normalized > 1.0 {
 			normalized = 1.0
 		}
 
 		// 2. Use separate exponents for visual vs audio response curves
-		visualIntensity := float32(math.Pow(float64(normalized), float64(g.visualExponent)))
-		audioIntensity := float32(math.Pow(float64(normalized), float64(g.audioExponent)))
+		visualIntensity := float32(math.Pow(float64(normalized), float64(tn.visualExponent)))
+		audioIntensity := float32(math.Pow(float64(normalized), float64(tn.audioExponent)))
 
 		g.spawnHitEvent(cr, cg, cb, visualIntensity)
 
@@ -343,7 +295,7 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	g.lastAccelMag = accelMag
 
 	// Gyro trail emission
-	if gyroMag > g.gyroThreshold && len(g.trails) < maxTrails {
+	if gyroMag > tn.gyroThreshold && len(g.trails) < maxTrails {
 		count := int(gyroMag/100.0) + 1
 		if count > 3 {
 			count = 3
@@ -748,11 +700,6 @@ func (g *Game) appendBillboard(vertices *[]renderer.LitVertex, indices *[]uint16
 }
 
 func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *sdl.GPUTexture) {
-	if g.pause.IsActive() {
-		g.pause.Render(e.Rend, cmdBuf, target, e.Win.Width(), e.Win.Height())
-		return
-	}
-
 	for i, m := range g.debugMeshes {
 		if m != nil {
 			m.Destroy(e.Rend)
@@ -802,7 +749,6 @@ func (g *Game) Destroy(e *engine.Engine) {
 	if g.stream != nil {
 		g.stream.Destroy()
 	}
-	g.pause.Destroy(e.Rend)
 	g.ground.Destroy(e.Rend)
 	if g.eventVB != nil {
 		e.Rend.ReleaseBuffer(g.eventVB)

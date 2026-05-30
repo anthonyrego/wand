@@ -30,15 +30,14 @@ const (
 )
 
 type flyParticle struct {
-	X, Y, Z    float32
-	Size       float32
-	R, G, B    uint8
+	X, Y, Z float32
+	Size    float32
+	R, G, B uint8
 }
 
 type Game struct {
-	wand  *wand.Listener
-	pause *ui.PauseMenu
-	time  float32
+	wand *wand.Listener
+	time float32
 
 	orientation mgl32.Quat
 	position    mgl32.Vec3
@@ -53,7 +52,6 @@ type Game struct {
 	neutralQ   mgl32.Quat
 	calibrated bool
 
-	wantsChange bool
 	debugMeshes [3]*mesh.Mesh
 }
 
@@ -61,12 +59,7 @@ func New(w *wand.Listener) *Game {
 	return &Game{wand: w}
 }
 
-func (g *Game) WantsChangeGame() bool {
-	return g.wantsChange
-}
-
 func (g *Game) Init(e *engine.Engine) error {
-	g.wantsChange = false
 	e.SetMouseMode(false)
 
 	e.Cam.Position = mgl32.Vec3{0, 0, 0}
@@ -81,12 +74,12 @@ func (g *Game) Init(e *engine.Engine) error {
 
 	type color3 struct{ r, g, b float64 }
 	axisColors := [6]color3{
-		{220, 130, 30},  // +X Orange
-		{160, 50, 200},  // -X Purple
-		{50, 100, 220},  // +Y Blue
-		{220, 200, 50},  // -Y Yellow
-		{220, 50, 50},   // +Z Red
-		{50, 180, 50},   // -Z Green
+		{220, 130, 30}, // +X Orange
+		{160, 50, 200}, // -X Purple
+		{50, 100, 220}, // +Y Blue
+		{220, 200, 50}, // -Y Yellow
+		{220, 50, 50},  // +Z Red
+		{50, 180, 50},  // -Z Green
 	}
 
 	var sphereVerts []renderer.LitVertex
@@ -152,35 +145,10 @@ func (g *Game) Init(e *engine.Engine) error {
 	}
 	g.skyDome = &mesh.Mesh{VertexBuffer: vb, IndexBuffer: ib, IndexCount: uint32(len(sphereIdxs))}
 
-	// Pause menu
-	resolutions := e.Win.DisplayModes()
-	g.pause = ui.NewPauseMenu(e.Rend, resolutions, e.Win.SupportsHDR())
-	startResIdx := 0
-	for i, res := range resolutions {
-		if res.W == e.Win.Width() && res.H == e.Win.Height() {
-			startResIdx = i
-			break
-		}
-	}
-	startRDIdx := 0
-	for i, v := range ui.RenderDistances {
-		if float32(v) == e.Cam.Far {
-			startRDIdx = i
-			break
-		}
-	}
-	g.pause.SetAppliedState(e.Win.IsFullscreen(), startResIdx, startRDIdx, e.Win.HDR())
-
 	// Lighting
-	if e.Win.HDR() {
-		e.LightUniforms.AmbientColor = mgl32.Vec4{0.3, 0.3, 0.3, 1.0}
-		e.LightUniforms.SunDirection = mgl32.Vec4{0, 0, -1, 0}
-		e.LightUniforms.SunColor = mgl32.Vec4{1.0, 1.0, 1.0, 2.0}
-	} else {
-		e.LightUniforms.AmbientColor = mgl32.Vec4{0.8, 0.8, 0.8, 1.0}
-		e.LightUniforms.SunDirection = mgl32.Vec4{0, 0, -1, 0}
-		e.LightUniforms.SunColor = mgl32.Vec4{1.0, 1.0, 1.0, 0.2}
-	}
+	e.LightUniforms.AmbientColor = mgl32.Vec4{0.8, 0.8, 0.8, 1.0}
+	e.LightUniforms.SunDirection = mgl32.Vec4{0, 0, -1, 0}
+	e.LightUniforms.SunColor = mgl32.Vec4{1.0, 1.0, 1.0, 0.2}
 
 	// Post-process
 	e.PostProcess = renderer.PostProcessUniforms{
@@ -202,26 +170,7 @@ func (g *Game) Init(e *engine.Engine) error {
 }
 
 func (g *Game) Update(e *engine.Engine, dt float32) bool {
-	action := g.pause.HandleInput(e.Input)
-	switch action {
-	case ui.ActionQuit:
-		return false
-	case ui.ActionApplySettings:
-		fs := g.pause.PendingFullscreen()
-		w, h := g.pause.PendingResolution()
-		rd := g.pause.PendingRenderDistance()
-		hdr := g.pause.PendingHDR()
-		e.ApplyDisplaySettings(fs, w, h, rd, hdr)
-		g.pause.ConfirmApply()
-	case ui.ActionChangeGame:
-		g.wantsChange = true
-	}
-
 	g.time += dt
-
-	if g.pause.IsActive() {
-		return true
-	}
 
 	// Read wand state as a quaternion.
 	s := g.wand.State()
@@ -270,9 +219,9 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	dRoll := mgl32.DegToRad(rollRate * dt)
 	dYaw := mgl32.DegToRad(totalYaw * dt)
 
-	qPitch := mgl32.QuatRotate(dPitch, mgl32.Vec3{1, 0, 0})   // pitch around local X
-	qRoll := mgl32.QuatRotate(dRoll, mgl32.Vec3{0, 0, -1})     // roll around local -Z (forward)
-	qYaw := mgl32.QuatRotate(-dYaw, mgl32.Vec3{0, 1, 0})       // yaw around local Y
+	qPitch := mgl32.QuatRotate(dPitch, mgl32.Vec3{1, 0, 0}) // pitch around local X
+	qRoll := mgl32.QuatRotate(dRoll, mgl32.Vec3{0, 0, -1})  // roll around local -Z (forward)
+	qYaw := mgl32.QuatRotate(-dYaw, mgl32.Vec3{0, 1, 0})    // yaw around local Y
 
 	g.orientation = g.orientation.Mul(qYaw).Mul(qPitch).Mul(qRoll)
 	g.orientation = g.orientation.Normalize()
@@ -407,11 +356,6 @@ func (g *Game) renderParticles(e *engine.Engine, frame renderer.RenderFrame, vie
 }
 
 func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *sdl.GPUTexture) {
-	if g.pause.IsActive() {
-		g.pause.Render(e.Rend, cmdBuf, target, e.Win.Width(), e.Win.Height())
-		return
-	}
-
 	for i, m := range g.debugMeshes {
 		if m != nil {
 			m.Destroy(e.Rend)
@@ -450,7 +394,6 @@ func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *s
 }
 
 func (g *Game) Destroy(e *engine.Engine) {
-	g.pause.Destroy(e.Rend)
 	g.skyDome.Destroy(e.Rend)
 	if g.partVB != nil {
 		e.Rend.ReleaseBuffer(g.partVB)

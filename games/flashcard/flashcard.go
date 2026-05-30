@@ -17,7 +17,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"unicode"
 
@@ -25,13 +24,12 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/anthonyrego/wand"
+	"github.com/anthonyrego/wand/pkg/control"
 	"github.com/anthonyrego/wand/pkg/engine"
 	"github.com/anthonyrego/wand/pkg/mesh"
 	"github.com/anthonyrego/wand/pkg/renderer"
 	"github.com/anthonyrego/wand/pkg/ui"
 )
-
-const defaultPort = 8080
 
 // uvInset keeps the top-left UV corner just above the lit shader's
 // texCoord > 0.001 threshold so every fragment routes through the texture path
@@ -44,12 +42,10 @@ type cardTex struct {
 }
 
 type Game struct {
-	wand  *wand.Listener // unused; kept for constructor compatibility
-	pause *ui.PauseMenu
+	wand *wand.Listener // unused; kept for constructor compatibility
 
 	store  *store
-	server *server
-	url    string
+	module *module
 
 	textures     map[string]*cardTex // photo id -> uploaded GPU texture
 	order        []Card              // cached deck order (set during reconcile)
@@ -59,20 +55,19 @@ type Game struct {
 
 	quad          *mesh.Mesh   // current card's quad, rebuilt each frame
 	overlayMeshes []*mesh.Mesh // text meshes to free next overlay
-
-	wantsChange bool
 }
 
 func New(w *wand.Listener) *Game {
 	return &Game{wand: w, textures: map[string]*cardTex{}}
 }
 
-func (g *Game) WantsChangeGame() bool {
-	return g.wantsChange
+// WebModule exposes the deck-management SPA + REST on the control server while
+// the game is active.
+func (g *Game) WebModule() control.GameModule {
+	return g.module
 }
 
 func (g *Game) Init(e *engine.Engine) error {
-	g.wantsChange = false
 	e.SetMouseMode(false)
 
 	// Camera: fixed, looking straight down -Z at the card plane (z=0).
@@ -94,64 +89,18 @@ func (g *Game) Init(e *engine.Engine) error {
 		Tint:   mgl32.Vec4{1, 1, 1, 0},
 	}
 
-	// Pause menu (same wiring as other games).
-	resolutions := e.Win.DisplayModes()
-	g.pause = ui.NewPauseMenu(e.Rend, resolutions, e.Win.SupportsHDR())
-	startResIdx := 0
-	for i, res := range resolutions {
-		if res.W == e.Win.Width() && res.H == e.Win.Height() {
-			startResIdx = i
-			break
-		}
-	}
-	startRDIdx := 0
-	for i, v := range ui.RenderDistances {
-		if float32(v) == e.Cam.Far {
-			startRDIdx = i
-			break
-		}
-	}
-	g.pause.SetAppliedState(e.Win.IsFullscreen(), startResIdx, startRDIdx, e.Win.HDR())
-
-	// Deck store + web server.
+	// Deck store + web module (the control server serves it; no listener here).
 	st, err := newStore(deckDir())
 	if err != nil {
 		return fmt.Errorf("flashcard store: %w", err)
 	}
 	g.store = st
-
-	port := deckPort()
-	g.server = newServer(st, port)
-	if err := g.server.start(); err != nil {
-		return fmt.Errorf("flashcard server: %w", err)
-	}
-
-	if ip := localIP(); ip != "" {
-		g.url = fmt.Sprintf("http://%s:%d", ip, port)
-	} else {
-		g.url = fmt.Sprintf("http://localhost:%d", port)
-	}
-	fmt.Println("Flashcards: manage from", g.url)
+	g.module = newModule(st)
 
 	return nil
 }
 
 func (g *Game) Update(e *engine.Engine, dt float32) bool {
-	action := g.pause.HandleInput(e.Input)
-	switch action {
-	case ui.ActionQuit:
-		return false
-	case ui.ActionApplySettings:
-		fs := g.pause.PendingFullscreen()
-		w, h := g.pause.PendingResolution()
-		rd := g.pause.PendingRenderDistance()
-		hdr := g.pause.PendingHDR()
-		e.ApplyDisplaySettings(fs, w, h, rd, hdr)
-		g.pause.ConfirmApply()
-	case ui.ActionChangeGame:
-		g.wantsChange = true
-	}
-
 	g.reconcile(e)
 	return true
 }
@@ -280,11 +229,6 @@ func (g *Game) buildCardQuad(e *engine.Engine, ct *cardTex) *mesh.Mesh {
 }
 
 func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *sdl.GPUTexture) {
-	if g.pause.IsActive() {
-		g.pause.Render(e.Rend, cmdBuf, target, e.Win.Width(), e.Win.Height())
-		return
-	}
-
 	for _, m := range g.overlayMeshes {
 		m.Destroy(e.Rend)
 	}
@@ -310,13 +254,15 @@ func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *s
 			g.drawCenteredText(e, cmdBuf, pass, ortho, counter, w, y-ui.FontRows*cps-h*0.015, cps, 150, 150, 165)
 		}
 	} else {
-		// No card: tell the user where to manage the deck.
-		const sub = "OPEN ON YOUR PHONE"
-		small := fitPixelSize(sub, h/180, w*0.92)
-		big := fitPixelSize(g.url, h/110, w*0.92)
-		y0 := h * 0.40
-		g.drawCenteredText(e, cmdBuf, pass, ortho, sub, w, y0, small, 200, 200, 210)
-		g.drawCenteredText(e, cmdBuf, pass, ortho, g.url, w, y0+ui.FontRows*small+h*0.03, big, 220, 170, 90)
+		// No card yet: the parent is already on the web UI (they switched to this
+		// game there), so just prompt them to add cards from the flashcards page.
+		const line1 = "ADD CARDS FROM YOUR PHONE"
+		const line2 = "ON THE FLASHCARDS PAGE"
+		s1 := fitPixelSize(line1, h/150, w*0.92)
+		s2 := fitPixelSize(line2, h/200, w*0.92)
+		y0 := h * 0.44
+		g.drawCenteredText(e, cmdBuf, pass, ortho, line1, w, y0, s1, 220, 200, 210)
+		g.drawCenteredText(e, cmdBuf, pass, ortho, line2, w, y0+ui.FontRows*s1+h*0.025, s2, 150, 150, 165)
 	}
 
 	e.Rend.EndUIPass(pass)
@@ -379,10 +325,6 @@ func titleFirst(s string) string {
 }
 
 func (g *Game) Destroy(e *engine.Engine) {
-	if g.server != nil {
-		g.server.stop()
-	}
-	g.pause.Destroy(e.Rend)
 	if g.quad != nil {
 		g.quad.Destroy(e.Rend)
 		g.quad = nil
@@ -406,13 +348,4 @@ func deckDir() string {
 		return "flashcards"
 	}
 	return filepath.Join(home, ".wand", "flashcards")
-}
-
-func deckPort() int {
-	if p := os.Getenv("WAND_FLASHCARD_PORT"); p != "" {
-		if n, err := strconv.Atoi(p); err == nil && n > 0 && n < 65536 {
-			return n
-		}
-	}
-	return defaultPort
 }

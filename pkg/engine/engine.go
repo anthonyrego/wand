@@ -43,7 +43,6 @@ func New(title string, ds settings.Settings) (*Engine, error) {
 		Title:  title,
 		Width:  ds.WindowWidth,
 		Height: ds.WindowHeight,
-		HDR:    ds.HDR,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("window: %w", err)
@@ -178,16 +177,8 @@ func (e *Engine) Run(game Game) error {
 }
 
 // ApplyDisplaySettings updates window, renderer, and camera for new display settings.
-func (e *Engine) ApplyDisplaySettings(fullscreen bool, w, h int, renderDistance float32, hdr bool) {
+func (e *Engine) ApplyDisplaySettings(fullscreen bool, w, h int, renderDistance float32) {
 	e.Cam.Far = renderDistance
-
-	if hdr != e.Win.HDR() {
-		if err := e.Win.SetHDR(hdr); err != nil {
-			fmt.Println("HDR error:", err)
-		} else if err := e.Rend.SetHDR(hdr); err != nil {
-			fmt.Println("Renderer HDR error:", err)
-		}
-	}
 
 	if err := e.Win.SetFullscreen(fullscreen); err != nil {
 		fmt.Println("Fullscreen error:", err)

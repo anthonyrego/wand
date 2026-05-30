@@ -10,6 +10,10 @@ const (
 	// FontRows is the glyph height (in font pixels) of the shared font.
 	FontRows = sign.CharHeight
 
+	// FontScale is the default on-screen pixel size for one font pixel, used by
+	// the title/labels on the splash and game overlays.
+	FontScale = 3
+
 	fontGap      = 1 // blank columns between glyphs
 	fontSpaceCol = 4 // advance for space / unknown glyphs
 )

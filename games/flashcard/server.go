@@ -1,14 +1,10 @@
 package flashcard
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
-	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 const (
@@ -16,18 +12,22 @@ const (
 	maxNameLen     = 40
 )
 
-// server exposes the deck over HTTP for management from any device on the LAN.
-// It only ever touches the store (CPU-side); no GPU calls happen here.
-type server struct {
+// module exposes the deck over HTTP as a control.GameModule: the deck-management
+// SPA (Page, mounted at /game/) and its REST (API, mounted at /api/game/). It
+// only ever touches the store (CPU-side); no GPU calls happen here, so its
+// handlers are safe to run on the HTTP goroutine concurrently with the game
+// loop, which syncs textures off a revision diff.
+type module struct {
 	store *store
-	http  *http.Server
+	mux   *http.ServeMux
 }
 
-func newServer(st *store, port int) *server {
-	s := &server{store: st}
+func newModule(st *store) *module {
+	s := &module{store: st}
 
+	// The control server mounts API under /api/game/ (prefix-stripped), so this
+	// mux still sees the original "/api/cards" etc. paths — no route changes.
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", s.handleIndex)
 	mux.HandleFunc("GET /api/cards", s.handleList)
 	mux.HandleFunc("POST /api/cards", s.handleUpload)
 	mux.HandleFunc("DELETE /api/cards/{id}", s.handleDelete)
@@ -40,45 +40,27 @@ func newServer(st *store, port int) *server {
 	mux.HandleFunc("POST /api/prev", s.handleStep(-1))
 	mux.HandleFunc("POST /api/photo/next", s.handlePhotoStep(+1))
 	mux.HandleFunc("POST /api/photo/prev", s.handlePhotoStep(-1))
+	s.mux = mux
 
-	s.http = &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: mux,
-	}
 	return s
 }
 
-// start serves in a background goroutine. Returns once the listener is bound so
-// the caller can be sure the port is live (or report the bind error).
-func (s *server) start() error {
-	ln, err := net.Listen("tcp", s.http.Addr)
-	if err != nil {
-		return err
-	}
-	go func() {
-		if err := s.http.Serve(ln); err != nil && err != http.ErrServerClosed {
-			fmt.Println("flashcard server:", err)
-		}
-	}()
-	return nil
-}
-
-func (s *server) stop() {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = s.http.Shutdown(ctx)
-}
-
-// --- handlers ---
-
-func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+// Page serves the deck-management SPA (mounted at /game/, prefix-stripped).
+func (s *module) Page(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" && r.URL.Path != "" {
 		http.NotFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(indexHTML)
 }
+
+// API forwards the prefix-stripped request to the REST mux.
+func (s *module) API(w http.ResponseWriter, r *http.Request) {
+	s.mux.ServeHTTP(w, r)
+}
+
+// --- handlers ---
 
 type photoDTO struct {
 	ID string `json:"id"`
@@ -99,7 +81,7 @@ func toCardDTO(c Card, currentID string) cardDTO {
 	return cardDTO{ID: c.ID, Name: c.Name, IsCurrent: c.ID == currentID, Photos: photos}
 }
 
-func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
+func (s *module) handleList(w http.ResponseWriter, r *http.Request) {
 	cards, currentID, currentPhoto := s.store.list()
 	out := struct {
 		Cards        []cardDTO `json:"cards"`
@@ -112,7 +94,7 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
+func (s *module) handleUpload(w http.ResponseWriter, r *http.Request) {
 	d, png, ok := s.readUploadImage(w, r)
 	if !ok {
 		return
@@ -132,7 +114,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAddPhoto appends another photo to an existing card.
-func (s *server) handleAddPhoto(w http.ResponseWriter, r *http.Request) {
+func (s *module) handleAddPhoto(w http.ResponseWriter, r *http.Request) {
 	d, png, ok := s.readUploadImage(w, r)
 	if !ok {
 		return
@@ -149,7 +131,7 @@ func (s *server) handleAddPhoto(w http.ResponseWriter, r *http.Request) {
 // the decode/resize pipeline. On any problem it writes a 400 and returns ok
 // false; the caller must stop. r.FormValue (used by callers for other fields)
 // also triggers parsing, so it is safe to call before or after this.
-func (s *server) readUploadImage(w http.ResponseWriter, r *http.Request) (*decoded, []byte, bool) {
+func (s *module) readUploadImage(w http.ResponseWriter, r *http.Request) (*decoded, []byte, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
 		http.Error(w, "upload too large or malformed", http.StatusBadRequest)
@@ -170,17 +152,17 @@ func (s *server) readUploadImage(w http.ResponseWriter, r *http.Request) (*decod
 	return d, png, true
 }
 
-func (s *server) handleDelete(w http.ResponseWriter, r *http.Request) {
+func (s *module) handleDelete(w http.ResponseWriter, r *http.Request) {
 	s.store.remove(r.PathValue("id"))
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *server) handleDeletePhoto(w http.ResponseWriter, r *http.Request) {
+func (s *module) handleDeletePhoto(w http.ResponseWriter, r *http.Request) {
 	s.store.removePhoto(r.PathValue("id"), r.PathValue("photoId"))
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *server) handlePatch(w http.ResponseWriter, r *http.Request) {
+func (s *module) handlePatch(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
 		Name  *string `json:"name"`
@@ -204,7 +186,7 @@ func (s *server) handlePatch(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *server) handleImage(w http.ResponseWriter, r *http.Request) {
+func (s *module) handleImage(w http.ResponseWriter, r *http.Request) {
 	file, ok := s.store.fileForPhoto(r.PathValue("id"), r.PathValue("photoId"))
 	if !ok {
 		http.NotFound(w, r)
@@ -214,7 +196,7 @@ func (s *server) handleImage(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(s.store.dir, file))
 }
 
-func (s *server) handleSetCurrent(w http.ResponseWriter, r *http.Request) {
+func (s *module) handleSetCurrent(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID    string `json:"id"`
 		Photo *int   `json:"photo"`
@@ -233,14 +215,14 @@ func (s *server) handleSetCurrent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *server) handleStep(delta int) http.HandlerFunc {
+func (s *module) handleStep(delta int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.store.step(delta)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-func (s *server) handlePhotoStep(delta int) http.HandlerFunc {
+func (s *module) handlePhotoStep(delta int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.store.stepPhoto(delta)
 		w.WriteHeader(http.StatusNoContent)
@@ -260,19 +242,4 @@ func cleanName(name string) string {
 		name = name[:maxNameLen]
 	}
 	return name
-}
-
-// localIP returns the host's primary LAN IPv4 address (best effort) by checking
-// which local interface would be used to reach the internet. No packets are
-// sent. Returns "" if it can't be determined.
-func localIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		return ""
-	}
-	defer conn.Close()
-	if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok {
-		return addr.IP.String()
-	}
-	return ""
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/Zyko0/go-sdl3/bin/binsdl"
 	"github.com/Zyko0/go-sdl3/sdl"
@@ -13,9 +14,9 @@ import (
 	"github.com/anthonyrego/wand/games/drumcircle"
 	"github.com/anthonyrego/wand/games/flashcard"
 	"github.com/anthonyrego/wand/games/flying"
+	"github.com/anthonyrego/wand/pkg/control"
+	"github.com/anthonyrego/wand/pkg/control/profile"
 	"github.com/anthonyrego/wand/pkg/engine"
-	"github.com/anthonyrego/wand/pkg/profile"
-	"github.com/anthonyrego/wand/pkg/settings"
 )
 
 func main() {
@@ -30,31 +31,51 @@ func main() {
 	}
 	defer sdl.Quit()
 
-	ds := settings.Default()
-
-	// Personalization: load the saved owner name and serve a tiny web admin so a
-	// parent can rename the wand ("EMMA'S WAND") from any device on the LAN.
+	// Personalization + display settings, both persisted under ~/.wand.
 	prof, err := profile.Load(profile.Dir())
 	if err != nil {
 		fmt.Println("Profile (using default name):", err)
 	}
-	psrv := profile.NewServer(prof, profile.Port())
-	if err := psrv.Start(); err != nil {
-		fmt.Println("Profile server:", err)
-	} else {
-		defer psrv.Stop()
-		host := profile.LocalIP()
-		if host == "" {
-			host = "localhost"
-		}
-		fmt.Printf("Personalize the wand at http://%s:%d\n", host, profile.Port())
-	}
+	videoStore := control.NewVideoStore(filepath.Join(profile.Dir(), "settings.json"))
 
-	e, err := engine.New(profile.WindowTitle(prof.Name()), ds)
+	// Game registry. IDs are stable wire slugs (used by the web); Names show on
+	// screen. The control server learns the list as data, so it never imports
+	// the games package.
+	defs := []games.GameDef{
+		{ID: "color-sphere", Name: "COLOR SPHERE", New: func(w *wand.Listener) engine.Game { return colorsphere.New(w) }},
+		{ID: "flying", Name: "FLYING", New: func(w *wand.Listener) engine.Game { return flying.New(w) }},
+		{ID: "drum-circle", Name: "DRUM CIRCLE", New: func(w *wand.Listener) engine.Game { return drumcircle.New(w) }},
+		{ID: "flashcards", Name: "FLASHCARDS", New: func(w *wand.Listener) engine.Game { return flashcard.New(w) }},
+	}
+	infos := make([]control.GameInfo, len(defs))
+	for i, d := range defs {
+		infos[i] = control.GameInfo{ID: d.ID, Name: d.Name}
+	}
+	navStore := control.NewNavStore(infos)
+
+	e, err := engine.New(profile.WindowTitle(prof.Name()), videoStore.Settings())
 	if err != nil {
 		panic(err)
 	}
 	defer e.Destroy()
+
+	// Snapshot the display's selectable resolutions once on the main thread, so
+	// the web UI can offer a dropdown without any HTTP-side SDL access.
+	var modes []control.Resolution
+	for _, m := range e.Win.DisplayModes() {
+		modes = append(modes, control.Resolution{W: m.W, H: m.H})
+	}
+
+	// One always-on control server on the canonical port (8080). The screen is a
+	// pure display; a parent drives everything from a phone or laptop.
+	port := control.Port()
+	srv := control.NewServer(control.Deps{Name: prof, Video: videoStore, Nav: navStore, Resolutions: modes}, port)
+	if err := srv.Start(); err != nil {
+		panic("control server: " + err.Error())
+	}
+	defer srv.Stop()
+	url := control.URL(port)
+	fmt.Println("Control the wand at", url)
 
 	w := wand.New(9999)
 	w.SetSmoothing(0.5)
@@ -63,14 +84,13 @@ func main() {
 	}
 	defer w.Stop()
 
-	defs := []games.GameDef{
-		{Name: "COLOR SPHERE", New: func(w *wand.Listener) engine.Game { return colorsphere.New(w) }},
-		{Name: "FLYING", New: func(w *wand.Listener) engine.Game { return flying.New(w) }},
-		{Name: "DRUM CIRCLE", New: func(w *wand.Listener) engine.Game { return drumcircle.New(w) }},
-		{Name: "FLASHCARDS", New: func(w *wand.Listener) engine.Game { return flashcard.New(w) }},
-	}
-
-	app := games.NewApp(w, defs, prof)
+	app := games.NewApp(w, defs, games.ControlBridge{
+		Server: srv,
+		Nav:    navStore,
+		Video:  videoStore,
+		Title:  prof,
+		URL:    url,
+	})
 
 	if err := e.Run(app); err != nil {
 		fmt.Println("Error:", err)

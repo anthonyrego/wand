@@ -34,8 +34,11 @@
   header p { margin: 4px 0 0; font-size: 13px; opacity: .85; }
   main { padding: 16px; max-width: 720px; margin: 0 auto; }
 
-  .nav { display: flex; gap: 10px; margin-bottom: 16px; }
-  .nav button { flex: 1; }
+  .nav { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .nav .navrow { display: flex; gap: 10px; align-items: center; }
+  .nav .navrow button { flex: 1; }
+  .nav .navlabel { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; width: 56px; flex: none; }
+  .nav .count { min-width: 56px; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; }
 
   button {
     font: inherit; font-weight: 600;
@@ -66,15 +69,12 @@
 
   ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
   li {
-    display: flex; align-items: center; gap: 12px;
-    background: var(--panel); border-radius: 14px; padding: 10px;
+    display: flex; flex-direction: column; gap: 10px;
+    background: var(--panel); border-radius: 14px; padding: 12px;
     border: 2px solid transparent;
   }
   li.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-  .thumb {
-    width: 64px; height: 64px; flex: none;
-    border-radius: 10px; object-fit: cover; background: #000;
-  }
+  .cardhead { display: flex; align-items: flex-start; gap: 12px; }
   .meta { flex: 1; min-width: 0; }
   .meta .name { font-weight: 600; font-size: 16px; word-break: break-word; }
   .badge { display: inline-block; font-size: 11px; color: var(--accent); margin-top: 2px; }
@@ -82,6 +82,28 @@
   .actions .row { display: flex; gap: 6px; }
   .actions button { padding: 8px 10px; font-size: 13px; }
   .reorder button { padding: 8px 11px; }
+
+  /* Horizontal strip of a card's photos. */
+  .photos { display: flex; gap: 8px; overflow-x: auto; padding: 2px; -webkit-overflow-scrolling: touch; }
+  .photo { position: relative; flex: none; }
+  .photo .thumb {
+    width: 72px; height: 72px; display: block;
+    border-radius: 10px; object-fit: cover; background: #000;
+    border: 2px solid transparent; cursor: pointer;
+  }
+  .photo.active .thumb { border-color: var(--accent); }
+  .photo .del {
+    position: absolute; top: -6px; right: -6px;
+    width: 22px; height: 22px; padding: 0; line-height: 1;
+    border-radius: 50%; font-size: 13px; font-weight: 700;
+    background: var(--danger); color: #fff; border: 2px solid var(--panel);
+  }
+  .addphoto {
+    width: 72px; height: 72px; flex: none;
+    border-radius: 10px; border: 2px dashed #443e5e;
+    background: transparent; color: var(--muted);
+    font-size: 26px; line-height: 1; cursor: pointer;
+  }
 
   .empty { text-align: center; color: var(--muted); padding: 40px 10px; }
   .toast {
@@ -95,13 +117,22 @@
 <body>
 <header>
   <h1>🪄 Wand Flashcards</h1>
-  <p>Upload cards and choose what shows on screen.</p>
+  <p>Upload cards, add photos, and choose what shows on screen.</p>
 </header>
 
 <main>
   <div class="nav">
-    <button class="ghost" id="prevBtn">◀ Prev</button>
-    <button class="ghost" id="nextBtn">Next ▶</button>
+    <div class="navrow">
+      <span class="navlabel">Card</span>
+      <button class="ghost" id="prevBtn">◀ Prev</button>
+      <button class="ghost" id="nextBtn">Next ▶</button>
+    </div>
+    <div class="navrow">
+      <span class="navlabel">Photo</span>
+      <button class="ghost" id="prevPhotoBtn">◀</button>
+      <span class="count" id="photoCount">– / –</span>
+      <button class="ghost" id="nextPhotoBtn">▶</button>
+    </div>
   </div>
 
   <form class="card-form" id="addForm">
@@ -123,6 +154,7 @@
 const $ = (id) => document.getElementById(id);
 let cards = [];
 let currentId = "";
+let currentPhoto = 0;
 
 function toast(msg) {
   const t = $("toast");
@@ -151,8 +183,17 @@ async function refresh() {
     const data = await api("GET", "/api/cards");
     cards = data.cards;
     currentId = data.currentId;
+    currentPhoto = data.currentPhoto;
     render();
   } catch (e) { /* keep last view on transient errors */ }
+}
+
+function currentCard() {
+  return cards.find((c) => c.id === currentId);
+}
+
+function imgURL(cardId, photoId) {
+  return "/api/cards/" + cardId + "/photos/" + photoId + "/image";
 }
 
 function render() {
@@ -160,14 +201,21 @@ function render() {
   $("empty").hidden = cards.length > 0;
   list.innerHTML = "";
 
+  // Photo navigation reflects the current card's set.
+  const cur = currentCard();
+  const n = cur ? cur.photos.length : 0;
+  $("photoCount").textContent = n > 0 ? (currentPhoto + 1) + " / " + n : "– / –";
+  const single = n <= 1;
+  $("prevPhotoBtn").disabled = single;
+  $("nextPhotoBtn").disabled = single;
+
   cards.forEach((c, i) => {
     const li = document.createElement("li");
     if (c.isCurrent) li.classList.add("current");
 
-    const img = document.createElement("img");
-    img.className = "thumb";
-    img.src = "/api/cards/" + c.id + "/image";
-    img.alt = c.name;
+    // Header: name + badge, then card-level actions.
+    const head = document.createElement("div");
+    head.className = "cardhead";
 
     const meta = document.createElement("div");
     meta.className = "meta";
@@ -175,23 +223,20 @@ function render() {
     name.className = "name";
     name.textContent = c.name;
     meta.appendChild(name);
-    if (c.isCurrent) {
-      const badge = document.createElement("div");
-      badge.className = "badge";
-      badge.textContent = "● ON SCREEN";
-      meta.appendChild(badge);
-    }
+    const badge = document.createElement("div");
+    badge.className = "badge";
+    badge.textContent = (c.isCurrent ? "● ON SCREEN · " : "") +
+      c.photos.length + (c.photos.length === 1 ? " photo" : " photos");
+    meta.appendChild(badge);
 
     const actions = document.createElement("div");
     actions.className = "actions";
-
     const row1 = document.createElement("div");
     row1.className = "row";
     const showBtn = button(c.isCurrent ? "Showing" : "Show", "primary", () => setCurrent(c.id));
     showBtn.disabled = c.isCurrent;
     const renameBtn = button("Rename", "ghost", () => rename(c));
     row1.append(showBtn, renameBtn);
-
     const row2 = document.createElement("div");
     row2.className = "row reorder";
     const upBtn = button("▲", "ghost", () => move(c.id, i - 1));
@@ -200,9 +245,43 @@ function render() {
     downBtn.disabled = i === cards.length - 1;
     const delBtn = button("Delete", "danger", () => del(c));
     row2.append(upBtn, downBtn, delBtn);
-
     actions.append(row1, row2);
-    li.append(img, meta, actions);
+
+    head.append(meta, actions);
+
+    // Photo strip: every photo, plus an add tile. Tapping a photo shows it.
+    const strip = document.createElement("div");
+    strip.className = "photos";
+    c.photos.forEach((p, pi) => {
+      const cell = document.createElement("div");
+      cell.className = "photo";
+      if (c.isCurrent && pi === currentPhoto) cell.classList.add("active");
+
+      const img = document.createElement("img");
+      img.className = "thumb";
+      img.src = imgURL(c.id, p.id);
+      img.alt = c.name;
+      img.addEventListener("click", () => showPhoto(c.id, pi));
+      cell.appendChild(img);
+
+      if (c.photos.length > 1) {
+        const x = document.createElement("button");
+        x.className = "del";
+        x.textContent = "×";
+        x.title = "Remove photo";
+        x.addEventListener("click", (e) => { e.stopPropagation(); delPhoto(c.id, p.id); });
+        cell.appendChild(x);
+      }
+      strip.appendChild(cell);
+    });
+    const addTile = document.createElement("button");
+    addTile.className = "addphoto";
+    addTile.textContent = "＋";
+    addTile.title = "Add photo";
+    addTile.addEventListener("click", () => addPhoto(c.id));
+    strip.appendChild(addTile);
+
+    li.append(head, strip);
     list.appendChild(li);
   });
 }
@@ -217,6 +296,10 @@ function button(label, cls, onClick) {
 
 async function setCurrent(id) {
   try { await api("POST", "/api/current", { id }); await refresh(); }
+  catch (e) { toast(e.message); }
+}
+async function showPhoto(id, photo) {
+  try { await api("POST", "/api/current", { id, photo }); await refresh(); }
   catch (e) { toast(e.message); }
 }
 async function move(id, order) {
@@ -234,12 +317,46 @@ async function del(c) {
   try { await api("DELETE", "/api/cards/" + c.id); await refresh(); }
   catch (e) { toast(e.message); }
 }
+async function delPhoto(id, photoId) {
+  try { await api("DELETE", "/api/cards/" + id + "/photos/" + photoId); await refresh(); }
+  catch (e) { toast(e.message); }
+}
+
+// A hidden, reusable file input drives "add photo" for any card.
+const photoPicker = document.createElement("input");
+photoPicker.type = "file";
+photoPicker.accept = "image/*";
+photoPicker.style.display = "none";
+document.body.appendChild(photoPicker);
+let photoTargetCard = "";
+
+function addPhoto(cardId) {
+  photoTargetCard = cardId;
+  photoPicker.value = "";
+  photoPicker.click();
+}
+photoPicker.addEventListener("change", async () => {
+  const file = photoPicker.files[0];
+  if (!file || !photoTargetCard) return;
+  const fd = new FormData();
+  fd.append("image", file);
+  try {
+    await api("POST", "/api/cards/" + photoTargetCard + "/photos", fd, true);
+    await refresh();
+  } catch (e) { toast(e.message); }
+});
 
 $("prevBtn").addEventListener("click", async () => {
   try { await api("POST", "/api/prev"); await refresh(); } catch (e) { toast(e.message); }
 });
 $("nextBtn").addEventListener("click", async () => {
   try { await api("POST", "/api/next"); await refresh(); } catch (e) { toast(e.message); }
+});
+$("prevPhotoBtn").addEventListener("click", async () => {
+  try { await api("POST", "/api/photo/prev"); await refresh(); } catch (e) { toast(e.message); }
+});
+$("nextPhotoBtn").addEventListener("click", async () => {
+  try { await api("POST", "/api/photo/next"); await refresh(); } catch (e) { toast(e.message); }
 });
 
 $("imageInput").addEventListener("change", () => {

@@ -51,10 +51,11 @@ type Game struct {
 	server *server
 	url    string
 
-	textures  map[string]*cardTex // id -> uploaded GPU texture
-	order     []Card              // cached deck order (set during reconcile)
-	currentID string
-	seenRev   uint64
+	textures     map[string]*cardTex // photo id -> uploaded GPU texture
+	order        []Card              // cached deck order (set during reconcile)
+	currentID    string
+	currentPhoto int
+	seenRev      uint64
 
 	quad          *mesh.Mesh   // current card's quad, rebuilt each frame
 	overlayMeshes []*mesh.Mesh // text meshes to free next overlay
@@ -167,6 +168,7 @@ func (g *Game) reconcile(e *engine.Engine) {
 	g.seenRev = snap.revision
 	g.order = snap.cards
 	g.currentID = snap.currentID
+	g.currentPhoto = snap.currentPhoto
 
 	for id, d := range snap.uploads {
 		tex, err := e.Rend.CreateTextureFromRGBA(d.W, d.H, d.Pix)
@@ -182,7 +184,9 @@ func (g *Game) reconcile(e *engine.Engine) {
 
 	valid := make(map[string]bool, len(snap.cards))
 	for _, c := range snap.cards {
-		valid[c.ID] = true
+		for _, p := range c.Photos {
+			valid[p.ID] = true
+		}
 	}
 	for id, ct := range g.textures {
 		if !valid[id] {
@@ -192,13 +196,28 @@ func (g *Game) reconcile(e *engine.Engine) {
 	}
 }
 
+// currentTex resolves the GPU texture for the on-screen card's selected photo,
+// or nil when there is nothing (or nothing uploaded yet) to show.
+func (g *Game) currentTex() *cardTex {
+	for _, c := range g.order {
+		if c.ID != g.currentID {
+			continue
+		}
+		if g.currentPhoto < 0 || g.currentPhoto >= len(c.Photos) {
+			return nil
+		}
+		return g.textures[c.Photos[g.currentPhoto].ID]
+	}
+	return nil
+}
+
 func (g *Game) Render(e *engine.Engine, frame renderer.RenderFrame) {
 	if g.quad != nil {
 		g.quad.Destroy(e.Rend)
 		g.quad = nil
 	}
 
-	ct := g.textures[g.currentID]
+	ct := g.currentTex()
 	if ct == nil {
 		return
 	}
@@ -276,12 +295,20 @@ func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *s
 	ortho := mgl32.Ortho2D(0, w, h, 0)
 	pass := e.Rend.BeginUIPass(cmdBuf, target)
 
-	if ct := g.textures[g.currentID]; ct != nil {
+	if ct := g.currentTex(); ct != nil {
 		// A card is on screen: caption it near the bottom, centered.
 		name := titleFirst(g.nameByID(g.currentID))
 		ps := fitPixelSize(name, h/130, w*0.92)
 		y := h - ui.FontRows*ps - h*0.04
 		g.drawCenteredText(e, cmdBuf, pass, ortho, name, w, y, ps, 255, 255, 255)
+
+		// When the card has multiple photos, show a small "2 / 5" indicator
+		// above the caption so a parent can see where they are in the set.
+		if n := g.photoCount(g.currentID); n > 1 {
+			counter := fmt.Sprintf("%d / %d", g.currentPhoto+1, n)
+			cps := fitPixelSize(counter, h/220, w*0.5)
+			g.drawCenteredText(e, cmdBuf, pass, ortho, counter, w, y-ui.FontRows*cps-h*0.015, cps, 150, 150, 165)
+		}
 	} else {
 		// No card: tell the user where to manage the deck.
 		const sub = "OPEN ON YOUR PHONE"
@@ -328,6 +355,15 @@ func (g *Game) nameByID(id string) string {
 		}
 	}
 	return ""
+}
+
+func (g *Game) photoCount(id string) int {
+	for _, c := range g.order {
+		if c.ID == id {
+			return len(c.Photos)
+		}
+	}
+	return 0
 }
 
 // titleFirst capitalizes the first letter and leaves the rest as typed

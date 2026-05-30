@@ -116,8 +116,11 @@ func TestServerUploadAndLifecycle(t *testing.T) {
 		t.Fatalf("after first upload: cards=%+v current=%s", cards, current)
 	}
 
-	// Its image should be served as PNG.
-	imgRes, err := http.Get(ts.URL + "/api/cards/" + created.ID + "/image")
+	// A fresh card has exactly one photo; its image should be served as PNG.
+	if len(created.Photos) != 1 {
+		t.Fatalf("new card should have 1 photo, got %d", len(created.Photos))
+	}
+	imgRes, err := http.Get(ts.URL + "/api/cards/" + created.ID + "/photos/" + created.Photos[0].ID + "/image")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,6 +172,117 @@ func TestServerUploadAndLifecycle(t *testing.T) {
 	cards, _ = getList(t, ts.URL)
 	if len(cards) != 1 {
 		t.Fatalf("after delete want 1 card, got %d", len(cards))
+	}
+}
+
+// addPhoto posts another image to an existing card.
+func addPhoto(t *testing.T, base, cardID string) *http.Response {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("image", "photo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fw.Write(makePNG(t, 16, 16))
+	mw.Close()
+
+	req, _ := http.NewRequest("POST", base+"/api/cards/"+cardID+"/photos", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func getListFull(t *testing.T, base string) (cards []cardDTO, currentID string, currentPhoto int) {
+	t.Helper()
+	res, err := http.Get(base + "/api/cards")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var out struct {
+		Cards        []cardDTO `json:"cards"`
+		CurrentID    string    `json:"currentId"`
+		CurrentPhoto int       `json:"currentPhoto"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	return out.Cards, out.CurrentID, out.CurrentPhoto
+}
+
+func TestServerPhotosLifecycle(t *testing.T) {
+	ts, _ := newTestServer(t)
+
+	// Card starts with one photo.
+	res := uploadCard(t, ts.URL, "Apple", true, true)
+	var card cardDTO
+	json.NewDecoder(res.Body).Decode(&card)
+	res.Body.Close()
+
+	// Add a second photo.
+	res = addPhoto(t, ts.URL, card.ID)
+	if res.StatusCode != 200 {
+		t.Fatalf("add photo status %d", res.StatusCode)
+	}
+	var added photoDTO
+	json.NewDecoder(res.Body).Decode(&added)
+	res.Body.Close()
+	if added.ID == "" {
+		t.Fatal("added photo has no id")
+	}
+
+	cards, _, photo := getListFull(t, ts.URL)
+	if len(cards[0].Photos) != 2 || photo != 0 {
+		t.Fatalf("after add: photos=%d currentPhoto=%d", len(cards[0].Photos), photo)
+	}
+
+	// Cycle the on-screen photo: 0 -> 1 -> wrap 0, then prev wraps to 1.
+	doJSON(t, "POST", ts.URL+"/api/photo/next", "")
+	if _, _, p := getListFull(t, ts.URL); p != 1 {
+		t.Fatalf("photo/next want 1 got %d", p)
+	}
+	doJSON(t, "POST", ts.URL+"/api/photo/next", "")
+	if _, _, p := getListFull(t, ts.URL); p != 0 {
+		t.Fatalf("photo/next wrap want 0 got %d", p)
+	}
+	doJSON(t, "POST", ts.URL+"/api/photo/prev", "")
+	if _, _, p := getListFull(t, ts.URL); p != 1 {
+		t.Fatalf("photo/prev wrap want 1 got %d", p)
+	}
+
+	// The added photo's image is served.
+	imgRes, err := http.Get(ts.URL + "/api/cards/" + card.ID + "/photos/" + added.ID + "/image")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imgRes.StatusCode != 200 {
+		t.Fatalf("photo image status %d", imgRes.StatusCode)
+	}
+	imgRes.Body.Close()
+
+	// Delete the added photo; the index clamps back into range.
+	req, _ := http.NewRequest("DELETE", ts.URL+"/api/cards/"+card.ID+"/photos/"+added.ID, nil)
+	delRes, _ := http.DefaultClient.Do(req)
+	if delRes.StatusCode != 204 {
+		t.Fatalf("delete photo status %d", delRes.StatusCode)
+	}
+	cards, _, photo = getListFull(t, ts.URL)
+	if len(cards[0].Photos) != 1 || photo != 0 {
+		t.Fatalf("after delete: photos=%d currentPhoto=%d", len(cards[0].Photos), photo)
+	}
+
+	// Deleting the only remaining photo is a no-op (use card delete instead).
+	req, _ = http.NewRequest("DELETE", ts.URL+"/api/cards/"+card.ID+"/photos/"+cards[0].Photos[0].ID, nil)
+	delRes, _ = http.DefaultClient.Do(req)
+	if delRes.StatusCode != 204 {
+		t.Fatalf("delete last photo status %d", delRes.StatusCode)
+	}
+	if cards, _, _ := getListFull(t, ts.URL); len(cards[0].Photos) != 1 {
+		t.Fatalf("last photo should remain, got %d", len(cards[0].Photos))
 	}
 }
 

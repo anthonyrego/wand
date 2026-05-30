@@ -32,10 +32,14 @@ func newServer(st *store, port int) *server {
 	mux.HandleFunc("POST /api/cards", s.handleUpload)
 	mux.HandleFunc("DELETE /api/cards/{id}", s.handleDelete)
 	mux.HandleFunc("PATCH /api/cards/{id}", s.handlePatch)
-	mux.HandleFunc("GET /api/cards/{id}/image", s.handleImage)
+	mux.HandleFunc("POST /api/cards/{id}/photos", s.handleAddPhoto)
+	mux.HandleFunc("DELETE /api/cards/{id}/photos/{photoId}", s.handleDeletePhoto)
+	mux.HandleFunc("GET /api/cards/{id}/photos/{photoId}/image", s.handleImage)
 	mux.HandleFunc("POST /api/current", s.handleSetCurrent)
 	mux.HandleFunc("POST /api/next", s.handleStep(+1))
 	mux.HandleFunc("POST /api/prev", s.handleStep(-1))
+	mux.HandleFunc("POST /api/photo/next", s.handlePhotoStep(+1))
+	mux.HandleFunc("POST /api/photo/prev", s.handlePhotoStep(-1))
 
 	s.http = &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
@@ -76,47 +80,46 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(indexHTML)
 }
 
+type photoDTO struct {
+	ID string `json:"id"`
+}
+
 type cardDTO struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	IsCurrent bool   `json:"isCurrent"`
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	IsCurrent bool       `json:"isCurrent"`
+	Photos    []photoDTO `json:"photos"`
+}
+
+func toCardDTO(c Card, currentID string) cardDTO {
+	photos := make([]photoDTO, 0, len(c.Photos))
+	for _, p := range c.Photos {
+		photos = append(photos, photoDTO{ID: p.ID})
+	}
+	return cardDTO{ID: c.ID, Name: c.Name, IsCurrent: c.ID == currentID, Photos: photos}
 }
 
 func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
-	cards, currentID := s.store.list()
+	cards, currentID, currentPhoto := s.store.list()
 	out := struct {
-		Cards     []cardDTO `json:"cards"`
-		CurrentID string    `json:"currentId"`
-	}{Cards: make([]cardDTO, 0, len(cards)), CurrentID: currentID}
+		Cards        []cardDTO `json:"cards"`
+		CurrentID    string    `json:"currentId"`
+		CurrentPhoto int       `json:"currentPhoto"`
+	}{Cards: make([]cardDTO, 0, len(cards)), CurrentID: currentID, CurrentPhoto: currentPhoto}
 	for _, c := range cards {
-		out.Cards = append(out.Cards, cardDTO{ID: c.ID, Name: c.Name, IsCurrent: c.ID == currentID})
+		out.Cards = append(out.Cards, toCardDTO(c, currentID))
 	}
 	writeJSON(w, out)
 }
 
 func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
-	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
-		http.Error(w, "upload too large or malformed", http.StatusBadRequest)
+	d, png, ok := s.readUploadImage(w, r)
+	if !ok {
 		return
 	}
-
 	name := cleanName(r.FormValue("name"))
 	if name == "" {
 		http.Error(w, "name is required", http.StatusBadRequest)
-		return
-	}
-
-	file, _, err := r.FormFile("image")
-	if err != nil {
-		http.Error(w, "image file is required", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	d, png, err := processUpload(file)
-	if err != nil {
-		http.Error(w, "could not read image (use PNG, JPEG, or GIF)", http.StatusBadRequest)
 		return
 	}
 
@@ -125,11 +128,55 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not save card", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, cardDTO{ID: c.ID, Name: c.Name})
+	writeJSON(w, toCardDTO(c, ""))
+}
+
+// handleAddPhoto appends another photo to an existing card.
+func (s *server) handleAddPhoto(w http.ResponseWriter, r *http.Request) {
+	d, png, ok := s.readUploadImage(w, r)
+	if !ok {
+		return
+	}
+	p, err := s.store.addPhoto(r.PathValue("id"), png, d)
+	if err != nil {
+		http.Error(w, "could not add photo (unknown card?)", http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, photoDTO{ID: p.ID})
+}
+
+// readUploadImage parses the multipart body and runs the "image" field through
+// the decode/resize pipeline. On any problem it writes a 400 and returns ok
+// false; the caller must stop. r.FormValue (used by callers for other fields)
+// also triggers parsing, so it is safe to call before or after this.
+func (s *server) readUploadImage(w http.ResponseWriter, r *http.Request) (*decoded, []byte, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		http.Error(w, "upload too large or malformed", http.StatusBadRequest)
+		return nil, nil, false
+	}
+	file, _, err := r.FormFile("image")
+	if err != nil {
+		http.Error(w, "image file is required", http.StatusBadRequest)
+		return nil, nil, false
+	}
+	defer file.Close()
+
+	d, png, err := processUpload(file)
+	if err != nil {
+		http.Error(w, "could not read image (use PNG, JPEG, or GIF)", http.StatusBadRequest)
+		return nil, nil, false
+	}
+	return d, png, true
 }
 
 func (s *server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	s.store.remove(r.PathValue("id"))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleDeletePhoto(w http.ResponseWriter, r *http.Request) {
+	s.store.removePhoto(r.PathValue("id"), r.PathValue("photoId"))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -158,7 +205,7 @@ func (s *server) handlePatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleImage(w http.ResponseWriter, r *http.Request) {
-	file, ok := s.store.fileForID(r.PathValue("id"))
+	file, ok := s.store.fileForPhoto(r.PathValue("id"), r.PathValue("photoId"))
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -169,19 +216,33 @@ func (s *server) handleImage(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleSetCurrent(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ID string `json:"id"`
+		ID    string `json:"id"`
+		Photo *int   `json:"photo"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	s.store.setCurrent(body.ID)
+	// With an explicit photo index, select that exact photo; otherwise select
+	// the card and reset to its first photo.
+	if body.Photo != nil {
+		s.store.selectPhoto(body.ID, *body.Photo)
+	} else {
+		s.store.setCurrent(body.ID)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) handleStep(delta int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.store.step(delta)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (s *server) handlePhotoStep(delta int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.store.stepPhoto(delta)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

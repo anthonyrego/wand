@@ -1,11 +1,23 @@
 #include <CodeCell.h>
-#include <WiFi.h>
+#include <WiFiManager.h>  // pulls in WiFi.h; provides the captive-portal provisioning
 #include <WiFiUdp.h>
 
 // --- Configuration ---
-// Create config.h from config.h.example and set your WiFi credentials.
+// Create config.h from config.h.example. WiFi credentials are OPTIONAL there
+// now — see the provisioning note below.
 #include "config.h"
 const int UDP_PORT = 9999;
+
+// --- WiFi provisioning ---
+// On first boot — or whenever saved credentials fail — the wand opens its own
+// open WiFi network ("Toy Box Wand Setup"). A parent joins it on a phone and a
+// captive page lets them pick their home WiFi: no recompile, no hardcoded
+// credentials. config.h's WIFI_SSID is an optional compile-time override
+// (handy for dev/CI); leave it empty ("") to always provision via the portal.
+const char *SETUP_AP_NAME              = "Toy Box Wand Setup";
+const unsigned long WIFI_CONNECT_TIMEOUT_S = 20;      // try saved creds this long before opening the portal
+const unsigned long WIFI_PORTAL_TIMEOUT_S  = 180;     // close an unattended portal and reboot to retry
+const unsigned long WIFI_LOST_RESTART_MS   = 120000;  // reboot after this long offline so a router change re-opens the portal
 
 // Broadcast address for discovery
 IPAddress broadcastIP(255, 255, 255, 255);
@@ -33,6 +45,7 @@ IPAddress listenerIP;
 unsigned long lastAckTime = 0;
 unsigned long lastDiscoveryTime = 0;
 unsigned int  sendFailures = 0;
+unsigned long wifiLostSince = 0;
 
 CodeCell myCodeCell;
 WiFiUDP udp;
@@ -58,6 +71,63 @@ static inline void apply_wand_remap(float &qw, float &qx, float &qy, float &qz) 
   qz = tw*(-rz) + tx*(-ry) - ty*(-rx) + tz*rw;
 }
 
+// Drive the onboard RGB LED so a parent can see the wand's state during setup.
+// (CodeCell::Run() reclaims the LED for battery status during normal play.)
+static void setLED(uint8_t r, uint8_t g, uint8_t b) {
+  myCodeCell.LED(r, g, b);
+}
+
+// Bring up WiFi: try the optional compile-time creds, then fall back to the
+// captive portal so a non-technical user can provision the wand on any network
+// without reflashing. Blocks until connected; reboots to retry if the portal
+// is left unattended.
+void connectWiFi() {
+  setLED(0, 0, 40);  // dim blue: working on it
+
+  bool connected = false;
+
+  // Optional compile-time override (dev/CI). Empty SSID -> straight to portal.
+  if (strlen(WIFI_SSID) > 0) {
+    Serial.print("Trying configured WiFi \"");
+    Serial.print(WIFI_SSID);
+    Serial.print("\"");
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED &&
+           millis() - start < WIFI_CONNECT_TIMEOUT_S * 1000UL) {
+      delay(250);
+      Serial.print(".");
+    }
+    Serial.println();
+    connected = (WiFi.status() == WL_CONNECTED);
+  }
+
+  // Captive portal: WiFiManager first retries any creds it saved on a previous
+  // setup, and only opens the "Toy Box Wand Setup" AP if that fails.
+  if (!connected) {
+    WiFiManager wm;
+    wm.setConnectTimeout(WIFI_CONNECT_TIMEOUT_S);
+    wm.setConfigPortalTimeout(WIFI_PORTAL_TIMEOUT_S);
+    wm.setAPCallback([](WiFiManager *) {
+      setLED(0, 0, 255);  // solid blue: "join my WiFi to set me up"
+      Serial.print("Setup portal open — join WiFi network: ");
+      Serial.println(SETUP_AP_NAME);
+    });
+    connected = wm.autoConnect(SETUP_AP_NAME);  // open network (no password)
+  }
+
+  if (!connected) {
+    Serial.println("WiFi setup timed out — restarting to try again.");
+    delay(500);
+    ESP.restart();
+  }
+
+  setLED(0, 255, 0);  // brief green: connected
+  Serial.print("Connected! IP: ");
+  Serial.println(WiFi.localIP());
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -65,16 +135,7 @@ void setup() {
   // removed) + raw gyro.
   myCodeCell.Init(MOTION_ROTATION_NO_MAG + MOTION_LINEAR_ACC + MOTION_GYRO);
 
-  // Connect to WiFi
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println();
-  Serial.print("Connected! IP: ");
-  Serial.println(WiFi.localIP());
+  connectWiFi();
 
   udp.begin(UDP_PORT);
 }
@@ -117,11 +178,20 @@ void sendDiscovery() {
 void loop() {
   if (myCodeCell.Run(40)) {
 
-    // Reconnect WiFi if dropped
+    // Reconnect WiFi if dropped. If we stay offline a long time (e.g. the
+    // household router or its password changed), reboot so setup() can
+    // re-open the provisioning portal.
     if (WiFi.status() != WL_CONNECTED) {
+      if (wifiLostSince == 0) {
+        wifiLostSince = millis();
+      } else if (millis() - wifiLostSince > WIFI_LOST_RESTART_MS) {
+        Serial.println("WiFi lost too long — restarting to re-provision.");
+        ESP.restart();
+      }
       WiFi.reconnect();
       return;
     }
+    wifiLostSince = 0;
 
     switch (state) {
       case DISCOVERING: {

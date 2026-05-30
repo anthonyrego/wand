@@ -33,7 +33,7 @@ func main() {
 
 ## How It Works
 
-The CodeCell C6 reads its onboard IMU and sends 44-byte UDP packets at 40Hz over WiFi. Connection is zero-config: the controller broadcasts a discovery packet, the Go listener responds with an ack, and the controller then unicasts directly to it. Periodic keepalive acks maintain the connection.
+The CodeCell C6 reads its onboard IMU and sends 44-byte UDP packets at 40Hz over WiFi. Connection is zero-config: the controller broadcasts a discovery packet, the Go listener responds with an ack, and the controller then unicasts directly to it. Periodic keepalive acks maintain the connection. Getting the wand onto your WiFi in the first place is a one-time on-device step — no credentials are compiled in (see [Hardware Setup](#hardware-setup)).
 
 ```
 CodeCell C6 ──UDP 40Hz──> Go "wand" package ──> Your game
@@ -87,9 +87,11 @@ The connect screen's title can be personalized for your child — instead of **T
 
 ## Hardware Setup
 
-1. Copy `firmware/wand_controller/config.h.example` to `config.h` and set your WiFi SSID and password
-2. Run `make upload` — it will list connected boards and prompt you to select one before compiling and flashing
-3. The controller discovers the listener automatically over UDP — no IP configuration needed
+1. Copy `firmware/wand_controller/config.h.example` to `config.h`, then run `make upload` — it lists connected boards and prompts you to select one before compiling and flashing. No WiFi credentials needed in `config.h`: the wand is provisioned on-device, not at build time.
+2. **Connect the wand to WiFi (one time).** On first boot the wand opens its own WiFi network, **"Toy Box Wand Setup"**, and the onboard LED glows blue. Join that network from a phone; a captive page pops up where you pick your home WiFi and enter its password. The wand saves it and reconnects on its own from then on. If your WiFi later changes, the wand reopens the setup network automatically — no reflashing.
+3. The wand then discovers the screen automatically over UDP — no IP configuration needed.
+
+> **Dev/CI shortcut:** set `WIFI_SSID`/`WIFI_PASSWORD` in `config.h` to bake a network in at build time; the wand tries those first and falls back to the setup portal if they fail.
 
 ### Wand-frame calibration
 
@@ -109,5 +111,6 @@ The `models/` directory contains 3D-printable STL files and OpenSCAD sources for
 
 - Go 1.24+
 - [CodeCell C6](https://microbots.io/products/codecell-c6). The [CodeCell Arduino library](https://github.com/microbotsio/CodeCell) is vendored in `firmware/libraries/CodeCell/` with a small local patch (see `PATCHES.md` there) that exposes the no-mag game rotation quaternion.
+- [WiFiManager](https://github.com/tzapu/WiFiManager) (v2.0.17) is vendored unmodified in `firmware/libraries/WiFiManager/` for the wand's on-device WiFi setup portal.
 - [arduino-cli](https://arduino.github.io/arduino-cli/) (for firmware compilation and upload)
 - Python 3 (used by the board selection script)

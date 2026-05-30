@@ -1,5 +1,10 @@
-#define WIFI_SSID     "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+// WiFi credentials are OPTIONAL. Leave WIFI_SSID empty ("") and on first boot
+// the wand opens its own "Toy Box Wand Setup" WiFi network — join it from a
+// phone and pick your home network from the captive page. No reflashing, no
+// hardcoded passwords. Set these only to bake a network in at build time (handy
+// for development/CI); the setup portal is still used as a fallback if they fail.
+#define WIFI_SSID     ""
+#define WIFI_PASSWORD ""
 
 // Wand-frame remap quaternion: rotates the BNO085 sensor frame into the
 // wand body frame (+X = tip-forward, +Y = up, +Z = right). Defaults to

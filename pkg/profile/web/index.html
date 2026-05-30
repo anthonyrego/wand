@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wand Setup</title>
+<style>
+  :root {
+    --bg: #14121c;
+    --panel: #211e30;
+    --panel2: #2c2840;
+    --accent: #c8823c;
+    --accent2: #6a32c8;
+    --text: #ece8f5;
+    --muted: #9690ad;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    padding: 16px 16px calc(16px + env(safe-area-inset-top));
+    padding-top: calc(16px + env(safe-area-inset-top));
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    box-shadow: 0 2px 12px rgba(0,0,0,.4);
+  }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: .5px; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .85; }
+  main { padding: 16px; max-width: 520px; margin: 0 auto; }
+
+  .preview {
+    background: #000; border-radius: 14px;
+    padding: 28px 16px; text-align: center; margin-bottom: 20px;
+    border: 2px solid var(--panel2);
+  }
+  .preview .title {
+    font-weight: 700; font-size: 28px; letter-spacing: 2px;
+    color: #fff; word-break: break-word;
+  }
+  .preview .hint { margin-top: 8px; font-size: 12px; color: var(--muted); }
+
+  form {
+    background: var(--panel); border-radius: 14px;
+    padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  }
+  label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  input[type=text] {
+    font: inherit; font-size: 18px; color: var(--text);
+    background: var(--panel2); border: 1px solid #3b3654;
+    border-radius: 10px; padding: 12px 14px; width: 100%;
+  }
+  button {
+    font: inherit; font-weight: 600;
+    color: #1a1208; background: var(--accent);
+    border: none; border-radius: 10px;
+    padding: 12px 14px; cursor: pointer;
+    transition: filter .12s ease;
+  }
+  button:active { filter: brightness(1.3); }
+  button:disabled { opacity: .35; cursor: default; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: var(--accent2); color: #fff; padding: 10px 16px; border-radius: 10px;
+    font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 10;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🪄 Wand Setup</h1>
+  <p>Personalize the wand with your child's name.</p>
+</header>
+
+<main>
+  <div class="preview">
+    <div class="title" id="titlePreview">WAND</div>
+    <div class="hint">This is the title on the wand's start screen.</div>
+  </div>
+
+  <form id="nameForm">
+    <label for="nameInput">Owner name</label>
+    <input type="text" id="nameInput" placeholder="e.g. Emma" maxlength="24" autocomplete="off">
+    <button class="primary" type="submit" id="saveBtn">Save</button>
+  </form>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2400);
+}
+
+// Mirror server-side Title(): "EMMA'S WAND" or plain "WAND".
+function titleFor(name) {
+  name = (name || "").trim();
+  return name ? name.toUpperCase() + "'S WAND" : "WAND";
+}
+
+function updatePreview() {
+  $("titlePreview").textContent = titleFor($("nameInput").value);
+}
+
+async function api(method, path, body) {
+  const opts = { method };
+  if (body !== undefined) {
+    opts.headers = { "Content-Type": "application/json" };
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  if (!res.ok) throw new Error(await res.text().catch(() => "request failed"));
+  return res.json();
+}
+
+async function load() {
+  try {
+    const p = await api("GET", "/api/profile");
+    $("nameInput").value = p.name;
+    $("titlePreview").textContent = p.title;
+  } catch (e) { /* keep defaults on transient errors */ }
+}
+
+$("nameInput").addEventListener("input", updatePreview);
+
+$("nameForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("saveBtn");
+  btn.disabled = true;
+  try {
+    const p = await api("POST", "/api/profile", { name: $("nameInput").value });
+    $("nameInput").value = p.name;
+    $("titlePreview").textContent = p.title;
+    toast("Saved!");
+  } catch (err) {
+    toast(err.message || "Could not save.");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+load();
+</script>
+</body>
+</html>

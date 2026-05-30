@@ -15,12 +15,13 @@ type App struct {
 	wand     *wand.Listener
 	defs     []GameDef
 	names    []string
+	title    selector.TitleProvider // personalizes the selector title ("EMMA'S WAND")
 	selector *selector.Selector
 	current  engine.Game
 	switchTo int // -1 = none, -2 = selector, >=0 = game index
 }
 
-func NewApp(w *wand.Listener, defs []GameDef) *App {
+func NewApp(w *wand.Listener, defs []GameDef, title selector.TitleProvider) *App {
 	names := make([]string, len(defs))
 	for i, d := range defs {
 		names[i] = d.Name
@@ -29,12 +30,13 @@ func NewApp(w *wand.Listener, defs []GameDef) *App {
 		wand:     w,
 		defs:     defs,
 		names:    names,
+		title:    title,
 		switchTo: -1,
 	}
 }
 
 func (a *App) Init(e *engine.Engine) error {
-	a.selector = selector.New(a.names)
+	a.selector = selector.New(a.names, a.title)
 	a.current = a.selector
 	return a.current.Init(e)
 }
@@ -44,7 +46,7 @@ func (a *App) Update(e *engine.Engine, dt float32) bool {
 	if a.switchTo != -1 {
 		a.current.Destroy(e)
 		if a.switchTo == switchToSelector {
-			a.selector = selector.New(a.names)
+			a.selector = selector.New(a.names, a.title)
 			a.current = a.selector
 		} else {
 			a.current = a.defs[a.switchTo].New(a.wand)

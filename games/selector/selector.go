@@ -17,10 +17,21 @@ type textEntry struct {
 	width float32
 }
 
+// TitleProvider supplies the personalized screen title (e.g. "EMMA'S WAND") and
+// a revision that changes whenever the title does, so the selector can rebuild
+// its title text live when the name is edited from the web admin.
+type TitleProvider interface {
+	Title() string
+	Revision() uint64
+}
+
 type Selector struct {
 	names    []string
 	selected int
 	chosen   int // -1 until user presses Enter
+
+	titleProvider TitleProvider // nil falls back to "WAND"
+	titleRev      uint64
 
 	ps      float32
 	title   textEntry
@@ -29,12 +40,20 @@ type Selector struct {
 	overlay *mesh.Mesh
 }
 
-func New(names []string) *Selector {
-	return &Selector{names: names, chosen: -1}
+func New(names []string, titleProvider TitleProvider) *Selector {
+	return &Selector{names: names, titleProvider: titleProvider, chosen: -1}
 }
 
-func (s *Selector) Chosen() int  { return s.chosen }
-func (s *Selector) Reset()       { s.chosen = -1; s.selected = 0 }
+// titleText is the current personalized title, or "WAND" when none is provided.
+func (s *Selector) titleText() string {
+	if s.titleProvider != nil {
+		return s.titleProvider.Title()
+	}
+	return "WAND"
+}
+
+func (s *Selector) Chosen() int { return s.chosen }
+func (s *Selector) Reset()      { s.chosen = -1; s.selected = 0 }
 
 func (s *Selector) Init(e *engine.Engine) error {
 	e.SetMouseMode(false)
@@ -45,8 +64,11 @@ func (s *Selector) Init(e *engine.Engine) error {
 
 	r := e.Rend
 
-	// Title
-	m, w, err := ui.NewTextMesh(r, "WAND", s.ps, 255, 255, 255, 255)
+	// Title (personalized, e.g. "EMMA'S WAND")
+	if s.titleProvider != nil {
+		s.titleRev = s.titleProvider.Revision()
+	}
+	m, w, err := ui.NewTextMesh(r, s.titleText(), s.ps, 255, 255, 255, 255)
 	if err != nil {
 		return err
 	}
@@ -104,7 +126,30 @@ func (s *Selector) Init(e *engine.Engine) error {
 	return nil
 }
 
+// refreshTitle rebuilds the title mesh when the owner name has changed (e.g. a
+// parent saved a new name from the web admin while the selector is on screen).
+func (s *Selector) refreshTitle(e *engine.Engine) {
+	if s.titleProvider == nil {
+		return
+	}
+	rev := s.titleProvider.Revision()
+	if rev == s.titleRev {
+		return
+	}
+	m, w, err := ui.NewTextMesh(e.Rend, s.titleText(), s.ps, 255, 255, 255, 255)
+	if err != nil {
+		return
+	}
+	if s.title.mesh != nil {
+		s.title.mesh.Destroy(e.Rend)
+	}
+	s.title = textEntry{mesh: m, width: w}
+	s.titleRev = rev
+}
+
 func (s *Selector) Update(e *engine.Engine, dt float32) bool {
+	s.refreshTitle(e)
+
 	if len(s.items) == 0 {
 		return true
 	}

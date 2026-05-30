@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wand Flashcards</title>
+<style>
+  :root {
+    --bg: #14121c;
+    --panel: #211e30;
+    --panel2: #2c2840;
+    --accent: #c8823c;
+    --accent2: #6a32c8;
+    --text: #ece8f5;
+    --muted: #9690ad;
+    --danger: #c84646;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    position: sticky; top: 0; z-index: 5;
+    padding: 16px 16px calc(16px + env(safe-area-inset-top));
+    padding-top: calc(16px + env(safe-area-inset-top));
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    box-shadow: 0 2px 12px rgba(0,0,0,.4);
+  }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: .5px; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .85; }
+  main { padding: 16px; max-width: 720px; margin: 0 auto; }
+
+  .nav { display: flex; gap: 10px; margin-bottom: 16px; }
+  .nav button { flex: 1; }
+
+  button {
+    font: inherit; font-weight: 600;
+    color: var(--text); background: var(--panel2);
+    border: none; border-radius: 10px;
+    padding: 11px 14px; cursor: pointer;
+    transition: filter .12s ease;
+  }
+  button:active { filter: brightness(1.3); }
+  button.primary { background: var(--accent); color: #1a1208; }
+  button.ghost { background: transparent; border: 1px solid #443e5e; }
+  button.danger { background: transparent; color: var(--danger); border: 1px solid #5a2a2a; }
+  button:disabled { opacity: .35; cursor: default; }
+
+  .card-form {
+    background: var(--panel); border-radius: 14px;
+    padding: 14px; margin-bottom: 20px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .card-form label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  input[type=text] {
+    font: inherit; color: var(--text);
+    background: var(--panel2); border: 1px solid #3b3654;
+    border-radius: 10px; padding: 11px 12px; width: 100%;
+  }
+  input[type=file] { font-size: 14px; color: var(--muted); }
+  .preview { display: none; border-radius: 10px; max-height: 160px; object-fit: contain; background:#000; }
+
+  ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+  li {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--panel); border-radius: 14px; padding: 10px;
+    border: 2px solid transparent;
+  }
+  li.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .thumb {
+    width: 64px; height: 64px; flex: none;
+    border-radius: 10px; object-fit: cover; background: #000;
+  }
+  .meta { flex: 1; min-width: 0; }
+  .meta .name { font-weight: 600; font-size: 16px; word-break: break-word; }
+  .badge { display: inline-block; font-size: 11px; color: var(--accent); margin-top: 2px; }
+  .actions { display: flex; flex-direction: column; gap: 6px; flex: none; }
+  .actions .row { display: flex; gap: 6px; }
+  .actions button { padding: 8px 10px; font-size: 13px; }
+  .reorder button { padding: 8px 11px; }
+
+  .empty { text-align: center; color: var(--muted); padding: 40px 10px; }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: var(--danger); color: #fff; padding: 10px 16px; border-radius: 10px;
+    font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 10;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🪄 Wand Flashcards</h1>
+  <p>Upload cards and choose what shows on screen.</p>
+</header>
+
+<main>
+  <div class="nav">
+    <button class="ghost" id="prevBtn">◀ Prev</button>
+    <button class="ghost" id="nextBtn">Next ▶</button>
+  </div>
+
+  <form class="card-form" id="addForm">
+    <label>New card image</label>
+    <input type="file" id="imageInput" accept="image/*" required>
+    <img class="preview" id="preview" alt="">
+    <label>Name</label>
+    <input type="text" id="nameInput" placeholder="e.g. APPLE" maxlength="40" required>
+    <button class="primary" type="submit" id="addBtn">Add card</button>
+  </form>
+
+  <ul id="list"></ul>
+  <div class="empty" id="empty" hidden>No cards yet — add one above. ⬆️</div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let cards = [];
+let currentId = "";
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+async function api(method, path, body, isForm) {
+  const opts = { method };
+  if (isForm) opts.body = body;
+  else if (body !== undefined) {
+    opts.headers = { "Content-Type": "application/json" };
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || (method + " " + path + " failed"));
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function refresh() {
+  try {
+    const data = await api("GET", "/api/cards");
+    cards = data.cards;
+    currentId = data.currentId;
+    render();
+  } catch (e) { /* keep last view on transient errors */ }
+}
+
+function render() {
+  const list = $("list");
+  $("empty").hidden = cards.length > 0;
+  list.innerHTML = "";
+
+  cards.forEach((c, i) => {
+    const li = document.createElement("li");
+    if (c.isCurrent) li.classList.add("current");
+
+    const img = document.createElement("img");
+    img.className = "thumb";
+    img.src = "/api/cards/" + c.id + "/image";
+    img.alt = c.name;
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const name = document.createElement("div");
+    name.className = "name";
+    name.textContent = c.name;
+    meta.appendChild(name);
+    if (c.isCurrent) {
+      const badge = document.createElement("div");
+      badge.className = "badge";
+      badge.textContent = "● ON SCREEN";
+      meta.appendChild(badge);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    const row1 = document.createElement("div");
+    row1.className = "row";
+    const showBtn = button(c.isCurrent ? "Showing" : "Show", "primary", () => setCurrent(c.id));
+    showBtn.disabled = c.isCurrent;
+    const renameBtn = button("Rename", "ghost", () => rename(c));
+    row1.append(showBtn, renameBtn);
+
+    const row2 = document.createElement("div");
+    row2.className = "row reorder";
+    const upBtn = button("▲", "ghost", () => move(c.id, i - 1));
+    upBtn.disabled = i === 0;
+    const downBtn = button("▼", "ghost", () => move(c.id, i + 1));
+    downBtn.disabled = i === cards.length - 1;
+    const delBtn = button("Delete", "danger", () => del(c));
+    row2.append(upBtn, downBtn, delBtn);
+
+    actions.append(row1, row2);
+    li.append(img, meta, actions);
+    list.appendChild(li);
+  });
+}
+
+function button(label, cls, onClick) {
+  const b = document.createElement("button");
+  b.className = cls;
+  b.textContent = label;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+async function setCurrent(id) {
+  try { await api("POST", "/api/current", { id }); await refresh(); }
+  catch (e) { toast(e.message); }
+}
+async function move(id, order) {
+  try { await api("PATCH", "/api/cards/" + id, { order }); await refresh(); }
+  catch (e) { toast(e.message); }
+}
+async function rename(c) {
+  const name = prompt("New name:", c.name);
+  if (name === null) return;
+  try { await api("PATCH", "/api/cards/" + c.id, { name }); await refresh(); }
+  catch (e) { toast(e.message); }
+}
+async function del(c) {
+  if (!confirm('Delete "' + c.name + '"?')) return;
+  try { await api("DELETE", "/api/cards/" + c.id); await refresh(); }
+  catch (e) { toast(e.message); }
+}
+
+$("prevBtn").addEventListener("click", async () => {
+  try { await api("POST", "/api/prev"); await refresh(); } catch (e) { toast(e.message); }
+});
+$("nextBtn").addEventListener("click", async () => {
+  try { await api("POST", "/api/next"); await refresh(); } catch (e) { toast(e.message); }
+});
+
+$("imageInput").addEventListener("change", () => {
+  const f = $("imageInput").files[0];
+  const p = $("preview");
+  if (f) { p.src = URL.createObjectURL(f); p.style.display = "block"; }
+  else { p.style.display = "none"; }
+});
+
+$("addForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const file = $("imageInput").files[0];
+  const name = $("nameInput").value.trim();
+  if (!file || !name) { toast("Pick an image and enter a name."); return; }
+
+  const fd = new FormData();
+  fd.append("image", file);
+  fd.append("name", name);
+
+  const btn = $("addBtn");
+  btn.disabled = true; btn.textContent = "Uploading…";
+  try {
+    await api("POST", "/api/cards", fd, true);
+    $("addForm").reset();
+    $("preview").style.display = "none";
+    await refresh();
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "Add card";
+  }
+});
+
+refresh();
+setInterval(refresh, 2500);
+</script>
+</body>
+</html>

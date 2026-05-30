@@ -66,6 +66,11 @@ Test without hardware by running `make sim` in one terminal and `make play` in a
 - **Color Sphere** — an inward-facing color sphere that rotates with the wand, plus a particle river driven by linear acceleration. Captures a neutral pose on the first frame, so however you're holding the wand when the game starts becomes the sphere's zero. A simple cause-and-effect toy for babies 10 months+.
 - **Flying** — a flight simulator where the wand controls pitch, roll, and yaw as angular rates. Captures a neutral pose on the first frame and computes body-frame deltas from there, with particle effects and a sky dome.
 - **Drum Circle** — point the wand in a direction and shake; each direction picks a note from a 20-note minor pentatonic mapped to the faces of an icosahedron. Uses linear acceleration magnitude for hit detection and synthesizes tones through SDL3 audio.
+- **Flashcards** — shows one large picture with its name. A parent manages the deck from a phone or laptop on the same network: while the game runs it serves a small web page (the connect URL appears on screen) where you upload card images, name them, reorder them, and pick which one is on screen. The deck persists to disk between runs. The wand is not used here. Set `WAND_FLASHCARD_PORT` (default `8080`) or `WAND_FLASHCARD_DIR` (default `~/.wand/flashcards`) to override the server port or storage location.
+
+### Personalize
+
+The start screen title can be personalized for your child — instead of **WAND** it reads **EMMA'S WAND**. While the app is running it serves a small setup page (the connect URL prints to the console at launch, e.g. `http://192.168.x.x:8090`); open it from any device on the same network, type a name, and Save. The name persists to `~/.wand/profile.json` and the title updates live — no restart needed. Leave the name blank to go back to plain "WAND". Set `WAND_CONFIG_PORT` (default `8090`) or `WAND_CONFIG_DIR` (default `~/.wand`) to override the server port or storage location.
 
 The app uses a lightweight 3D engine included in `pkg/` (SDL3 GPU API, cross-platform Metal/Vulkan/D3D12).
 

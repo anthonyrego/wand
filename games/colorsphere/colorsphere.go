@@ -400,7 +400,7 @@ func (g *Game) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *s
 			continue
 		}
 		g.debugMeshes[i] = m
-		y := float32(10) + float32(i)*ps*8
+		y := float32(10) + float32(i)*ps*11
 		e.Rend.DrawUI(cmdBuf, pass, renderer.DrawCall{
 			VertexBuffer: m.VertexBuffer,
 			IndexBuffer:  m.IndexBuffer,

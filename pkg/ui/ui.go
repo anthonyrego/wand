@@ -145,7 +145,7 @@ func newWhiteOnly(r *renderer.Renderer, text string, ps float32) (textEntry, err
 
 var RenderDistances = []int{500, 750, 1000, 1250, 1500, 2000}
 
-const FontScale = 4
+const FontScale = 3
 
 func NewPauseMenu(r *renderer.Renderer, resolutions []window.Resolution, hdrSupported bool) *PauseMenu {
 	ps := float32(FontScale)

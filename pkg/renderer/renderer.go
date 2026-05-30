@@ -137,20 +137,21 @@ type Renderer struct {
 	depthTexture *sdl.GPUTexture
 
 	// Lit rendering
-	litPipeline              *sdl.GPUGraphicsPipeline
-	litNoDepthWritePipeline  *sdl.GPUGraphicsPipeline
-	litDepthBiasPipeline     *sdl.GPUGraphicsPipeline
-	postProcessPipeline *sdl.GPUGraphicsPipeline
-	offscreenTexture    *sdl.GPUTexture
-	offscreenDepth      *sdl.GPUTexture
-	nearestSampler      *sdl.GPUSampler
-	groundTexture       *sdl.GPUTexture
-	placeholderTexture  *sdl.GPUTexture
-	repeatSampler       *sdl.GPUSampler
-	offscreenW          uint32
-	offscreenH          uint32
-	offscreenFormat     sdl.GPUTextureFormat
-	hdr                 bool
+	litPipeline             *sdl.GPUGraphicsPipeline
+	litNoDepthWritePipeline *sdl.GPUGraphicsPipeline
+	litDepthBiasPipeline    *sdl.GPUGraphicsPipeline
+	postProcessPipeline     *sdl.GPUGraphicsPipeline
+	offscreenTexture        *sdl.GPUTexture
+	offscreenDepth          *sdl.GPUTexture
+	nearestSampler          *sdl.GPUSampler
+	groundTexture           *sdl.GPUTexture
+	placeholderTexture      *sdl.GPUTexture
+	repeatSampler           *sdl.GPUSampler
+	linearSampler           *sdl.GPUSampler
+	offscreenW              uint32
+	offscreenH              uint32
+	offscreenFormat         sdl.GPUTextureFormat
+	hdr                     bool
 
 	// Swirl effect rendering
 	swirlPipeline *sdl.GPUGraphicsPipeline
@@ -464,6 +465,20 @@ func (r *Renderer) initLitPipeline() error {
 	}
 	r.repeatSampler = repeatSampler
 
+	// --- Linear sampler (for sampled images: smooth scaling, clamped edges) ---
+	linearSampler, err := device.CreateSampler(&sdl.GPUSamplerCreateInfo{
+		MinFilter:    sdl.GPU_FILTER_LINEAR,
+		MagFilter:    sdl.GPU_FILTER_LINEAR,
+		MipmapMode:   sdl.GPU_SAMPLERMIPMAPMODE_NEAREST,
+		AddressModeU: sdl.GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+		AddressModeV: sdl.GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+		AddressModeW: sdl.GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+	})
+	if err != nil {
+		return errors.New("failed to create linear sampler: " + err.Error())
+	}
+	r.linearSampler = linearSampler
+
 	// --- Textures ---
 	if err := r.createGroundTexture(); err != nil {
 		return err
@@ -554,7 +569,7 @@ func (r *Renderer) initFireballPipeline() error {
 				{
 					Format: r.offscreenFormat,
 					BlendState: sdl.GPUColorTargetBlendState{
-						EnableBlend:        true,
+						EnableBlend:         true,
 						SrcColorBlendfactor: sdl.GPU_BLENDFACTOR_SRC_ALPHA,
 						DstColorBlendfactor: sdl.GPU_BLENDFACTOR_ONE,
 						ColorBlendOp:        sdl.GPU_BLENDOP_ADD,
@@ -1145,6 +1160,17 @@ func (r *Renderer) BindBuildingAtlas(renderPass *sdl.GPURenderPass, atlas *sdl.G
 	})
 }
 
+// BindLitTexture binds an arbitrary texture into the lit pipeline's second
+// fragment sampler slot, sampled with linear filtering and clamped edges. The
+// lit fragment shader routes meshes with non-zero UVs through this texture
+// (see Lit.frag's UV path), so a quad with explicit UVs renders this image.
+func (r *Renderer) BindLitTexture(renderPass *sdl.GPURenderPass, tex *sdl.GPUTexture) {
+	renderPass.BindFragmentSamplers([]sdl.GPUTextureSamplerBinding{
+		{Texture: r.groundTexture, Sampler: r.repeatSampler},
+		{Texture: tex, Sampler: r.linearSampler},
+	})
+}
+
 // CreateTextureFromRGBA creates a GPU texture from RGBA pixel data.
 func (r *Renderer) CreateTextureFromRGBA(width, height uint32, pixels []byte) (*sdl.GPUTexture, error) {
 	return createTextureFromPixels(r.window.Device(), width, height, pixels)
@@ -1407,6 +1433,9 @@ func (r *Renderer) Destroy() {
 	}
 	if r.repeatSampler != nil {
 		device.ReleaseSampler(r.repeatSampler)
+	}
+	if r.linearSampler != nil {
+		device.ReleaseSampler(r.linearSampler)
 	}
 	if r.nearestSampler != nil {
 		device.ReleaseSampler(r.nearestSampler)

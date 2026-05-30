@@ -199,13 +199,9 @@ func (s *Splash) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target 
 		})
 	}
 
-	// "CONNECT ON YOUR PHONE" + the URL, below the QR.
-	const sub = "CONNECT ON YOUR PHONE"
-	small := fitPixelSize(sub, h/200, w*0.92)
+	// The connect URL below the QR (shrinks to fit on longer addresses).
 	big := fitPixelSize(s.url, h/120, w*0.92)
-	y0 := h * 0.84
-	s.drawCenteredText(e, cmdBuf, pass, ortho, sub, w, y0, small, 200, 200, 210)
-	s.drawCenteredText(e, cmdBuf, pass, ortho, s.url, w, y0+ui.FontRows*small+h*0.025, big, 240, 175, 95)
+	s.drawCenteredText(e, cmdBuf, pass, ortho, s.url, w, h*0.84, big, 240, 175, 95)
 
 	e.Rend.EndUIPass(pass)
 }

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthonyrego/wand/pkg/control"
-	"github.com/anthonyrego/wand/pkg/control/profile"
+	"github.com/anthonyrego/toybox/pkg/control"
+	"github.com/anthonyrego/toybox/pkg/control/profile"
 )
 
 // TestModuleUnderControlServer exercises the flashcard module exactly as the app

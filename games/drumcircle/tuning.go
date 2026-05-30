@@ -3,7 +3,7 @@ package drumcircle
 import (
 	"sync"
 
-	"github.com/anthonyrego/wand/pkg/control"
+	"github.com/anthonyrego/toybox/pkg/control"
 )
 
 // tuning holds the drum-circle hit/trail parameters. It is shared between the

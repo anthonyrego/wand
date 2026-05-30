@@ -7,9 +7,9 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/anthonyrego/wand/pkg/camera"
-	"github.com/anthonyrego/wand/pkg/shaders"
-	"github.com/anthonyrego/wand/pkg/window"
+	"github.com/anthonyrego/toybox/pkg/camera"
+	"github.com/anthonyrego/toybox/pkg/shaders"
+	"github.com/anthonyrego/toybox/pkg/window"
 )
 
 // RenderFrame bundles per-frame state needed by entity rendering methods.

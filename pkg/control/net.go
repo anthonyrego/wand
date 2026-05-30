@@ -11,9 +11,9 @@ import (
 // port a parent may already know from the flashcard "open on your phone" flow.
 const DefaultPort = 8080
 
-// Port is the control server port: $WAND_CONTROL_PORT, else DefaultPort.
+// Port is the control server port: $TOYBOX_CONTROL_PORT, else DefaultPort.
 func Port() int {
-	if p := os.Getenv("WAND_CONTROL_PORT"); p != "" {
+	if p := os.Getenv("TOYBOX_CONTROL_PORT"); p != "" {
 		if n, err := strconv.Atoi(p); err == nil && n > 0 && n < 65536 {
 			return n
 		}

@@ -1,4 +1,4 @@
-// Package flashcard is a wand game that shows a single large image with its
+// Package flashcard is a toy box game that shows a single large image with its
 // name, managed live from any device on the local network via a built-in web
 // server. A parent uploads cards (image + name) and chooses which one is on
 // screen; the deck persists to disk between runs.
@@ -23,12 +23,12 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/anthonyrego/wand"
-	"github.com/anthonyrego/wand/pkg/control"
-	"github.com/anthonyrego/wand/pkg/engine"
-	"github.com/anthonyrego/wand/pkg/mesh"
-	"github.com/anthonyrego/wand/pkg/renderer"
-	"github.com/anthonyrego/wand/pkg/ui"
+	"github.com/anthonyrego/toybox/wand"
+	"github.com/anthonyrego/toybox/pkg/control"
+	"github.com/anthonyrego/toybox/pkg/engine"
+	"github.com/anthonyrego/toybox/pkg/mesh"
+	"github.com/anthonyrego/toybox/pkg/renderer"
+	"github.com/anthonyrego/toybox/pkg/ui"
 )
 
 // uvInset keeps the top-left UV corner just above the lit shader's
@@ -340,12 +340,12 @@ func (g *Game) Destroy(e *engine.Engine) {
 }
 
 func deckDir() string {
-	if d := os.Getenv("WAND_FLASHCARD_DIR"); d != "" {
+	if d := os.Getenv("TOYBOX_FLASHCARD_DIR"); d != "" {
 		return d
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "flashcards"
 	}
-	return filepath.Join(home, ".wand", "flashcards")
+	return filepath.Join(home, ".toybox", "flashcards")
 }

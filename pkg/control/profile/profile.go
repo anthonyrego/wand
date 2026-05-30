@@ -1,6 +1,6 @@
-// Package profile stores the wand's personalization — the owner's name — and
-// derives the on-screen title from it ("EMMA'S WAND"). The name persists to
-// ~/.wand/profile.json and is editable at runtime from any device on the LAN
+// Package profile stores the toy box's personalization — the owner's name — and
+// derives the on-screen title from it ("EMMA'S TOY BOX"). The name persists to
+// ~/.toybox/profile.json and is editable at runtime from any device on the LAN
 // via the always-on control server (pkg/control).
 //
 // The Store is the single source of truth, shared between the HTTP server
@@ -36,7 +36,7 @@ type persisted struct {
 
 // Load opens (creating its directory if needed) the profile at dir/profile.json.
 // It always returns a usable Store: a missing or unreadable file yields an empty
-// name (the plain "WAND" title), and a directory error returns an in-memory-only
+// name (the plain "TOY BOX" title), and a directory error returns an in-memory-only
 // store alongside the error so the caller can warn but keep running.
 func Load(dir string) (*Store, error) {
 	s := &Store{revision: 1}
@@ -71,7 +71,7 @@ func (s *Store) Revision() uint64 {
 }
 
 // Title returns the personalized title in the all-caps style of the rest of the
-// UI: "EMMA'S WAND", or plain "WAND" when no name is set.
+// UI: "EMMA'S TOY BOX", or plain "TOY BOX" when no name is set.
 func (s *Store) Title() string {
 	return Title(s.Name())
 }
@@ -110,18 +110,18 @@ func (s *Store) saveLocked() {
 func Title(name string) string {
 	name = CleanName(name)
 	if name == "" {
-		return "WAND"
+		return "TOY BOX"
 	}
-	return strings.ToUpper(name) + "'S WAND"
+	return strings.ToUpper(name) + "'S TOY BOX"
 }
 
-// WindowTitle derives the OS window title in proper case: "Emma's Wand".
+// WindowTitle derives the OS window title in proper case: "Emma's Toy Box".
 func WindowTitle(name string) string {
 	name = CleanName(name)
 	if name == "" {
-		return "Wand"
+		return "Toy Box"
 	}
-	return name + "'s Wand"
+	return name + "'s Toy Box"
 }
 
 // CleanName trims a name and restricts it to the printable ASCII the 8x8 font
@@ -141,15 +141,15 @@ func CleanName(name string) string {
 	return out
 }
 
-// Dir is the profile directory: $WAND_CONFIG_DIR, else ~/.wand (the same root
+// Dir is the profile directory: $TOYBOX_CONFIG_DIR, else ~/.toybox (the same root
 // the flashcard deck uses).
 func Dir() string {
-	if d := os.Getenv("WAND_CONFIG_DIR"); d != "" {
+	if d := os.Getenv("TOYBOX_CONFIG_DIR"); d != "" {
 		return d
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".wand"
+		return ".toybox"
 	}
-	return filepath.Join(home, ".wand")
+	return filepath.Join(home, ".toybox")
 }

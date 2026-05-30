@@ -3,8 +3,8 @@ package sign
 import (
 	"strings"
 
-	"github.com/anthonyrego/wand/pkg/mesh"
-	"github.com/anthonyrego/wand/pkg/renderer"
+	"github.com/anthonyrego/toybox/pkg/mesh"
+	"github.com/anthonyrego/toybox/pkg/renderer"
 )
 
 const (

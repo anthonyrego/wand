@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthonyrego/wand/pkg/control/profile"
-	"github.com/anthonyrego/wand/pkg/settings"
+	"github.com/anthonyrego/toybox/pkg/control/profile"
+	"github.com/anthonyrego/toybox/pkg/settings"
 )
 
 func newTestServer(t *testing.T) (*httptest.Server, Deps) {
@@ -38,7 +38,7 @@ func TestProfileGetSet(t *testing.T) {
 	var set profileDTO
 	_ = json.NewDecoder(resp.Body).Decode(&set)
 	resp.Body.Close()
-	if set.Name != "Emma" || set.Title != "EMMA'S WAND" {
+	if set.Name != "Emma" || set.Title != "EMMA'S TOY BOX" {
 		t.Fatalf("POST result: %+v", set)
 	}
 	if deps.Name.Name() != "Emma" {

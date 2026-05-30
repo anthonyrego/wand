@@ -1,9 +1,9 @@
 package ui
 
 import (
-	"github.com/anthonyrego/wand/pkg/mesh"
-	"github.com/anthonyrego/wand/pkg/renderer"
-	"github.com/anthonyrego/wand/pkg/sign"
+	"github.com/anthonyrego/toybox/pkg/mesh"
+	"github.com/anthonyrego/toybox/pkg/renderer"
+	"github.com/anthonyrego/toybox/pkg/sign"
 )
 
 const (

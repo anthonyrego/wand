@@ -8,15 +8,15 @@ import (
 	"github.com/Zyko0/go-sdl3/bin/binsdl"
 	"github.com/Zyko0/go-sdl3/sdl"
 
-	"github.com/anthonyrego/wand"
-	"github.com/anthonyrego/wand/games"
-	"github.com/anthonyrego/wand/games/colorsphere"
-	"github.com/anthonyrego/wand/games/drumcircle"
-	"github.com/anthonyrego/wand/games/flashcard"
-	"github.com/anthonyrego/wand/games/flying"
-	"github.com/anthonyrego/wand/pkg/control"
-	"github.com/anthonyrego/wand/pkg/control/profile"
-	"github.com/anthonyrego/wand/pkg/engine"
+	"github.com/anthonyrego/toybox/wand"
+	"github.com/anthonyrego/toybox/games"
+	"github.com/anthonyrego/toybox/games/colorsphere"
+	"github.com/anthonyrego/toybox/games/drumcircle"
+	"github.com/anthonyrego/toybox/games/flashcard"
+	"github.com/anthonyrego/toybox/games/flying"
+	"github.com/anthonyrego/toybox/pkg/control"
+	"github.com/anthonyrego/toybox/pkg/control/profile"
+	"github.com/anthonyrego/toybox/pkg/engine"
 )
 
 func main() {
@@ -31,7 +31,7 @@ func main() {
 	}
 	defer sdl.Quit()
 
-	// Personalization + display settings, both persisted under ~/.wand.
+	// Personalization + display settings, both persisted under ~/.toybox.
 	prof, err := profile.Load(profile.Dir())
 	if err != nil {
 		fmt.Println("Profile (using default name):", err)

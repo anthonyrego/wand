@@ -7,12 +7,12 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/anthonyrego/wand/pkg/audio"
-	"github.com/anthonyrego/wand/pkg/camera"
-	"github.com/anthonyrego/wand/pkg/input"
-	"github.com/anthonyrego/wand/pkg/renderer"
-	"github.com/anthonyrego/wand/pkg/settings"
-	"github.com/anthonyrego/wand/pkg/window"
+	"github.com/anthonyrego/toybox/pkg/audio"
+	"github.com/anthonyrego/toybox/pkg/camera"
+	"github.com/anthonyrego/toybox/pkg/input"
+	"github.com/anthonyrego/toybox/pkg/renderer"
+	"github.com/anthonyrego/toybox/pkg/settings"
+	"github.com/anthonyrego/toybox/pkg/window"
 )
 
 // Game is implemented by the application to provide game-specific logic.

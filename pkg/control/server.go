@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthonyrego/wand/pkg/control/profile"
-	"github.com/anthonyrego/wand/pkg/settings"
+	"github.com/anthonyrego/toybox/pkg/control/profile"
+	"github.com/anthonyrego/toybox/pkg/settings"
 )
 
 // Deps are the shared, thread-safe stores the control server reads and writes,

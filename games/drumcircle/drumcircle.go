@@ -9,13 +9,13 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/anthonyrego/wand"
-	"github.com/anthonyrego/wand/pkg/audio"
-	"github.com/anthonyrego/wand/pkg/control"
-	"github.com/anthonyrego/wand/pkg/engine"
-	"github.com/anthonyrego/wand/pkg/mesh"
-	"github.com/anthonyrego/wand/pkg/renderer"
-	"github.com/anthonyrego/wand/pkg/ui"
+	"github.com/anthonyrego/toybox/wand"
+	"github.com/anthonyrego/toybox/pkg/audio"
+	"github.com/anthonyrego/toybox/pkg/control"
+	"github.com/anthonyrego/toybox/pkg/engine"
+	"github.com/anthonyrego/toybox/pkg/mesh"
+	"github.com/anthonyrego/toybox/pkg/renderer"
+	"github.com/anthonyrego/toybox/pkg/ui"
 )
 
 const (

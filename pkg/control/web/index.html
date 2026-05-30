@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Wand</title>
+<title>Toy Box</title>
 <style>
   :root { --bg:#11131a; --panel:#1b1e29; --panel2:#232737; --fg:#e8eaf2; --muted:#8b91a6;
           --accent:#f0aa5a; --accent2:#5a9cf0; --ok:#5ad08a; }
@@ -53,7 +53,7 @@
 </head>
 <body>
 <header>
-  <h1 id="title">WAND</h1>
+  <h1 id="title">TOY BOX</h1>
   <div class="sub">Remote control · this device is the TV</div>
 </header>
 <nav>
@@ -75,11 +75,11 @@
 
   <section id="tab-settings" class="tab">
     <div class="card">
-      <label for="nameInput">Wand owner's name</label>
+      <label for="nameInput">Owner's name</label>
       <input type="text" id="nameInput" maxlength="24" placeholder="(none)">
       <div class="preview" id="namePreview"></div>
       <button class="primary" id="nameSave">Save name</button>
-      <div class="hint" style="margin-top:10px">Shows on the splash as "NAME'S WAND".</div>
+      <div class="hint" style="margin-top:10px">Shows on the splash as "NAME'S TOY BOX".</div>
     </div>
 
     <div class="card">
@@ -195,12 +195,12 @@ function syncFrame() {
 }
 
 // --- name ---
-function titleOf(n) { n = (n||"").trim(); return n ? n.toUpperCase() + "'S WAND" : "WAND"; }
+function titleOf(n) { n = (n||"").trim(); return n ? n.toUpperCase() + "'S TOY BOX" : "TOY BOX"; }
 async function loadName() {
   const p = await api("GET", "/api/profile");
   document.getElementById("nameInput").value = p.name || "";
-  document.getElementById("namePreview").textContent = p.title || "WAND";
-  document.getElementById("title").textContent = p.title || "WAND";
+  document.getElementById("namePreview").textContent = p.title || "TOY BOX";
+  document.getElementById("title").textContent = p.title || "TOY BOX";
 }
 document.getElementById("nameInput").addEventListener("input", e => {
   document.getElementById("namePreview").textContent = titleOf(e.target.value);
@@ -208,8 +208,8 @@ document.getElementById("nameInput").addEventListener("input", e => {
 document.getElementById("nameSave").addEventListener("click", async () => {
   const p = await api("POST", "/api/profile", { name: document.getElementById("nameInput").value });
   document.getElementById("nameInput").value = p.name || "";
-  document.getElementById("namePreview").textContent = p.title || "WAND";
-  document.getElementById("title").textContent = p.title || "WAND";
+  document.getElementById("namePreview").textContent = p.title || "TOY BOX";
+  document.getElementById("title").textContent = p.title || "TOY BOX";
 });
 
 // --- video ---

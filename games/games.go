@@ -1,10 +1,10 @@
 package games
 
 import (
-	"github.com/anthonyrego/wand"
-	"github.com/anthonyrego/wand/games/splash"
-	"github.com/anthonyrego/wand/pkg/control"
-	"github.com/anthonyrego/wand/pkg/engine"
+	"github.com/anthonyrego/toybox/wand"
+	"github.com/anthonyrego/toybox/games/splash"
+	"github.com/anthonyrego/toybox/pkg/control"
+	"github.com/anthonyrego/toybox/pkg/engine"
 )
 
 // GameDef describes a registered game. ID is a stable, author-assigned slug

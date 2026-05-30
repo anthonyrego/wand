@@ -32,7 +32,7 @@ page is the "remote control" for everything around the game.
 ## What already exists (building blocks)
 
 - `pkg/profile` — an **always-on** `net/http` server (owner name, port 8090) with
-  an embedded SPA + REST and disk persistence (`~/.wand/profile.json`). A revision
+  an embedded SPA + REST and disk persistence (`~/.toybox/profile.json`). A revision
   counter lets the game loop pick up changes live without a restart. This is the
   closest template for the unified control server.
 - `games/flashcard` — a web admin (port 8080) that runs **only while that game is

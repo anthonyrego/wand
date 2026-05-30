@@ -12,7 +12,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/anthonyrego/wand"
+	"github.com/anthonyrego/toybox/wand"
 )
 
 func main() {

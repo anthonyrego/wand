@@ -1,6 +1,6 @@
-# Wand
+# Toy Box
 
-A Go package that receives orientation and motion data from a wireless motion controller over UDP. Built for a DIY toddler toy using a [CodeCell C6](https://microbots.io/products/codecell-c6) (ESP32-C6 + BNO085 9-axis IMU).
+A DIY toddler toy. A screen runs a set of mini-games, all driven from any phone or laptop on the LAN. Some games are controlled by a wireless motion **wand** — a [CodeCell C6](https://microbots.io/products/codecell-c6) (ESP32-C6 + BNO085 9-axis IMU) that streams orientation and motion over UDP into the Go `wand` package shown below; others (like flashcards) just use the screen.
 
 ## Usage
 
@@ -11,7 +11,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/anthonyrego/wand"
+    "github.com/anthonyrego/toybox/wand"
 )
 
 func main() {
@@ -61,16 +61,16 @@ Test without hardware by running `make sim` in one terminal and `make play` in a
 
 ### The app
 
-`make play` launches the app on the connected screen, which acts as a pure display — there's no keyboard control. On launch it shows a **connect screen**: the wand's name, a URL, and a QR code. Open that URL (or scan the QR) from a phone or laptop on the same network to drive everything from one page:
+`make play` launches the app on the connected screen, which acts as a pure display — there's no keyboard control. On launch it shows a **connect screen**: the toy box's name, a URL, and a QR code. Open that URL (or scan the QR) from a phone or laptop on the same network to drive everything from one page:
 
 - **Pick and switch games** — choose what's on screen; "Stop" returns to the connect screen.
-- **Name the wand** — personalize the title (see below).
-- **Video settings** — fullscreen, resolution (chosen from the display's supported modes), and draw distance; applied on save and persisted to `~/.wand/settings.json`.
+- **Name the toy box** — personalize the title (see below).
+- **Video settings** — fullscreen, resolution (chosen from the display's supported modes), and draw distance; applied on save and persisted to `~/.toybox/settings.json`.
 - **Per-game settings** — a game can expose its own controls, editable while it runs (e.g. Drum Circle's hit/trail sensitivity, or the Flashcards deck).
 
 The wand stays the in-game input device; the web page is the remote control for everything around the game. The only key the app itself listens for is **Esc** — press it three times (a small on-screen prompt counts down) to quit.
 
-The control server runs on port `8080` (override with `WAND_CONTROL_PORT`); settings live under `~/.wand` (override with `WAND_CONFIG_DIR`). It's a home-LAN toddler toy, so the server has no authentication and binds all interfaces. The app uses a lightweight 3D engine included in `pkg/` (SDL3 GPU API, cross-platform Metal/Vulkan/D3D12).
+The control server runs on port `8080` (override with `TOYBOX_CONTROL_PORT`); settings live under `~/.toybox` (override with `TOYBOX_CONFIG_DIR`). It's a home-LAN toddler toy, so the server has no authentication and binds all interfaces. The app uses a lightweight 3D engine included in `pkg/` (SDL3 GPU API, cross-platform Metal/Vulkan/D3D12).
 
 ### Games
 
@@ -79,11 +79,11 @@ The wand connects once and is shared across all games:
 - **Color Sphere** — an inward-facing color sphere that rotates with the wand, plus a particle river driven by linear acceleration. Captures a neutral pose on the first frame, so however you're holding the wand when the game starts becomes the sphere's zero. A simple cause-and-effect toy for babies 10 months+.
 - **Flying** — a flight simulator where the wand controls pitch, roll, and yaw as angular rates. Captures a neutral pose on the first frame and computes body-frame deltas from there, with particle effects and a sky dome.
 - **Drum Circle** — point the wand in a direction and shake; each direction picks a note from a 20-note minor pentatonic mapped to the faces of an icosahedron. Uses linear acceleration magnitude for hit detection and synthesizes tones through SDL3 audio. Its hit/trail sensitivity is tunable live from the game's settings page.
-- **Flashcards** — shows one large picture with its name; the wand is unused here. Manage the deck from the game's page in the web UI: upload card images, add multiple photos per card, name and reorder them, and pick which is on screen (and which photo). The deck persists to `~/.wand/flashcards` between runs (override with `WAND_FLASHCARD_DIR`).
+- **Flashcards** — shows one large picture with its name; the wand is unused here. Manage the deck from the game's page in the web UI: upload card images, add multiple photos per card, name and reorder them, and pick which is on screen (and which photo). The deck persists to `~/.toybox/flashcards` between runs (override with `TOYBOX_FLASHCARD_DIR`).
 
 ### Personalize
 
-The connect screen's title can be personalized for your child — instead of **WAND** it reads **EMMA'S WAND**. In the web UI go to **Settings**, type a name, and Save; the name persists to `~/.wand/profile.json` and the title updates live — no restart needed. Leave it blank to go back to plain "WAND".
+The connect screen's title can be personalized for your child — instead of **TOY BOX** it reads **EMMA'S TOY BOX**. In the web UI go to **Settings**, type a name, and Save; the name persists to `~/.toybox/profile.json` and the title updates live — no restart needed. Leave it blank to go back to plain "TOY BOX".
 
 ## Hardware Setup
 

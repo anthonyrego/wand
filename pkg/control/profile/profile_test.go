@@ -26,10 +26,10 @@ func TestCleanName(t *testing.T) {
 
 func TestTitle(t *testing.T) {
 	cases := map[string]string{
-		"":      "WAND",
-		"   ":   "WAND",
-		"Emma":  "EMMA'S WAND",
-		"lucas": "LUCAS'S WAND",
+		"":      "TOY BOX",
+		"   ":   "TOY BOX",
+		"Emma":  "EMMA'S TOY BOX",
+		"lucas": "LUCAS'S TOY BOX",
 	}
 	for in, want := range cases {
 		if got := Title(in); got != want {
@@ -39,11 +39,11 @@ func TestTitle(t *testing.T) {
 }
 
 func TestWindowTitle(t *testing.T) {
-	if got := WindowTitle(""); got != "Wand" {
-		t.Errorf("WindowTitle(\"\") = %q, want %q", got, "Wand")
+	if got := WindowTitle(""); got != "Toy Box" {
+		t.Errorf("WindowTitle(\"\") = %q, want %q", got, "Toy Box")
 	}
-	if got := WindowTitle("Emma"); got != "Emma's Wand" {
-		t.Errorf("WindowTitle(\"Emma\") = %q, want %q", got, "Emma's Wand")
+	if got := WindowTitle("Emma"); got != "Emma's Toy Box" {
+		t.Errorf("WindowTitle(\"Emma\") = %q, want %q", got, "Emma's Toy Box")
 	}
 }
 
@@ -54,7 +54,7 @@ func TestStorePersistsAcrossLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if s.Name() != "" || s.Title() != "WAND" {
+	if s.Name() != "" || s.Title() != "TOY BOX" {
 		t.Fatalf("fresh store: name=%q title=%q", s.Name(), s.Title())
 	}
 
@@ -79,7 +79,7 @@ func TestStorePersistsAcrossLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	if s2.Name() != "Emma" || s2.Title() != "EMMA'S WAND" {
+	if s2.Name() != "Emma" || s2.Title() != "EMMA'S TOY BOX" {
 		t.Fatalf("reloaded store: name=%q title=%q", s2.Name(), s2.Title())
 	}
 

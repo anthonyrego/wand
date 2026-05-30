@@ -14,18 +14,18 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/anthonyrego/wand/pkg/control"
-	"github.com/anthonyrego/wand/pkg/engine"
-	"github.com/anthonyrego/wand/pkg/mesh"
-	"github.com/anthonyrego/wand/pkg/renderer"
-	"github.com/anthonyrego/wand/pkg/ui"
+	"github.com/anthonyrego/toybox/pkg/control"
+	"github.com/anthonyrego/toybox/pkg/engine"
+	"github.com/anthonyrego/toybox/pkg/mesh"
+	"github.com/anthonyrego/toybox/pkg/renderer"
+	"github.com/anthonyrego/toybox/pkg/ui"
 )
 
 // uvInset keeps the top-left UV corner above the lit shader's texCoord > 0.001
 // threshold so every fragment routes through the texture path.
 const uvInset = 0.0015
 
-// TitleProvider supplies the personalized screen title (e.g. "EMMA'S WAND") and
+// TitleProvider supplies the personalized screen title (e.g. "EMMA'S TOY BOX") and
 // a revision that changes whenever the title does, so the splash can rebuild its
 // title text live when the name is edited from the web.
 type TitleProvider interface {
@@ -57,7 +57,7 @@ func (s *Splash) titleText() string {
 	if s.titleProvider != nil {
 		return s.titleProvider.Title()
 	}
-	return "WAND"
+	return "TOY BOX"
 }
 
 func (s *Splash) Init(e *engine.Engine) error {

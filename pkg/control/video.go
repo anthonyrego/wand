@@ -3,7 +3,7 @@ package control
 import (
 	"sync"
 
-	"github.com/anthonyrego/wand/pkg/settings"
+	"github.com/anthonyrego/toybox/pkg/settings"
 )
 
 // Resolution is one selectable window size, served to the web UI. The list is

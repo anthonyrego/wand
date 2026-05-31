@@ -46,13 +46,13 @@ func main() {
 	// screen. The control server learns the list as data, so it never imports
 	// the games package.
 	defs := []games.GameDef{
-		{ID: "flying", Name: "FLYING", New: func(w *wand.Listener) engine.Game { return flying.New(w) }},
-		{ID: "drum-circle", Name: "DRUM CIRCLE", New: func(w *wand.Listener) engine.Game { return drumcircle.New(w) }},
+		{ID: "flying", Name: "FLYING", RequiresWand: true, New: func(w *wand.Listener) engine.Game { return flying.New(w) }},
+		{ID: "drum-circle", Name: "DRUM CIRCLE", RequiresWand: true, New: func(w *wand.Listener) engine.Game { return drumcircle.New(w) }},
 		{ID: "flashcards", Name: "FLASHCARDS", New: func(w *wand.Listener) engine.Game { return flashcard.New(w) }},
 	}
 	infos := make([]control.GameInfo, len(defs))
 	for i, d := range defs {
-		infos[i] = control.GameInfo{ID: d.ID, Name: d.Name}
+		infos[i] = control.GameInfo{ID: d.ID, Name: d.Name, RequiresWand: d.RequiresWand}
 	}
 	navStore := control.NewNavStore(infos)
 

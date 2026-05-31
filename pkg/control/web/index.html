@@ -32,6 +32,8 @@
   .gamebtn .dot { width:10px; height:10px; border-radius:50%; background:transparent; }
   .gamebtn.current { outline:2px solid var(--ok); }
   .gamebtn.current .dot { background:var(--ok); }
+  .gamebtn .gname { display:inline-flex; align-items:center; gap:8px; }
+  .gamebtn .wandicon { width:16px; height:16px; flex:0 0 auto; display:block; color:var(--accent2); }
   label { display:block; color:var(--muted); font-size:13px; margin:12px 0 4px; }
   input[type=text], input[type=number], select {
     width:100%; background:var(--panel2); color:var(--fg); border:1px solid #2c3144;
@@ -140,7 +142,12 @@ function renderGames() {
   games.forEach(g => {
     const b = document.createElement("button");
     b.className = "gamebtn" + (g.id === current ? " current" : "");
-    b.innerHTML = "<span>" + g.name + "</span><span class='dot'></span>";
+    const wand = g.requiresWand
+      ? "<svg class='wandicon' viewBox='0 0 24 24' aria-hidden='true'><title>Needs the motion wand</title>"
+        + "<line x1='4' y1='20' x2='15' y2='9' stroke='currentColor' stroke-width='2.6' stroke-linecap='round'/>"
+        + "<path fill='currentColor' d='M17 3 18.06 5.94 21 7 18.06 8.06 17 11 15.94 8.06 13 7 15.94 5.94Z'/></svg>"
+      : "";
+    b.innerHTML = "<span class='gname'>" + g.name + wand + "</span><span class='dot'></span>";
     b.addEventListener("click", () => switchTo(g.id));
     list.appendChild(b);
   });

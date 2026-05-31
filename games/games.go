@@ -8,11 +8,13 @@ import (
 )
 
 // GameDef describes a registered game. ID is a stable, author-assigned slug
-// used on the wire (web → switch); Name is the display name.
+// used on the wire (web → switch); Name is the display name. RequiresWand marks
+// motion-controlled games so the web UI can flag them with a wand icon.
 type GameDef struct {
-	ID   string
-	Name string
-	New  func(w *wand.Listener) engine.Game
+	ID           string
+	Name         string
+	RequiresWand bool
+	New          func(w *wand.Listener) engine.Game
 }
 
 // WebProvider is optionally implemented by a game that contributes a web page +

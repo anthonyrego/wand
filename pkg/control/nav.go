@@ -10,8 +10,9 @@ const SplashID = "splash"
 // learns the game list as data (built in cmd/play from the registry) so it
 // never has to import the games package.
 type GameInfo struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	RequiresWand bool   `json:"requiresWand"` // motion-controlled — web shows a wand icon
 }
 
 // NavStore is the game-switch channel between the web (which requests a switch)

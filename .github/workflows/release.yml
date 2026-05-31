@@ -3,6 +3,10 @@ name: release
 # Cuts a GitHub Release with prebuilt binaries whenever a v* tag is pushed:
 #   git tag v0.1.0 && git push origin v0.1.0
 # No SDL toolchain needed — the app is pure Go (purego) with SDL3 embedded.
+# Runs on macOS so the darwin binaries are well-formed Mach-O and can be signed
+# + notarized — a Linux-cross-built darwin binary crashes under Rosetta. macOS
+# still cross-compiles the Linux/Windows targets (pure Go). The signing/notary
+# secrets below are documented in docs/RELEASING.md.
 
 on:
   push:
@@ -14,7 +18,7 @@ permissions:
 
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,3 +38,11 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS Developer ID signing + Apple Notary API (see docs/RELEASING.md).
+          # If these secrets are unset, the notarize step auto-skips and macOS
+          # binaries ship unsigned (they'll hit Gatekeeper).
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}

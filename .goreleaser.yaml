@@ -31,11 +31,25 @@ builds:
     # All 6 combinations build (pure Go). macOS, Windows, and Linux/amd64 embed
     # SDL3 via binsdl and are fully self-contained; Linux/arm64 (Raspberry Pi)
     # needs system SDL3 at runtime — see the release footer below.
+    # NOTE: macOS binaries must be built on a macOS runner (see release.yml) so
+    # the Mach-O is well-formed (a Linux-cross-built darwin binary crashes under
+    # Rosetta) and so codesigning/notarization can run.
+
+# Fuse the two macOS slices into one universal binary — a single Mac download
+# that runs on both Intel and Apple Silicon, with no arch for the user to pick.
+universal_binaries:
+  - id: toybox-universal
+    ids:
+      - toybox
+    replace: true
+    name_template: "toybox"
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - id: toybox
     ids:
       - toybox
+      - toybox-universal
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats:
       - tar.gz
@@ -72,8 +86,28 @@ release:
   footer: |
     ## Install
 
-    Download the archive for your OS and CPU, extract it, and run `toybox`.
+    Download the archive for your computer, extract it, and run `toybox`.
 
-    - **macOS**, **Windows**, and **Linux (amd64)** builds bundle SDL3 — nothing else to install.
+    - **macOS** — one universal build (Intel + Apple Silicon), signed & notarized by Apple: just open it.
+    - **Windows** and **Linux (amd64)** bundle SDL3 — nothing else to install.
     - **Linux (arm64 / Raspberry Pi)** needs system SDL3 at runtime:
       `sudo apt install libsdl3-0` (or your distro's equivalent).
+
+# Sign (Developer ID) + notarize the macOS universal binary so Gatekeeper lets
+# it run with no warning. Gated on isEnvSet so local `make release-snapshot`
+# (no secrets) still works. Requires building on a macOS runner — see release.yml.
+# Secrets, set in the repo: MACOS_SIGN_P12 (base64 .p12), MACOS_SIGN_PASSWORD,
+# MACOS_NOTARY_ISSUER_ID, MACOS_NOTARY_KEY_ID, MACOS_NOTARY_KEY (base64 .p8).
+# See docs/RELEASING.md.
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m

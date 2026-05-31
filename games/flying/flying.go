@@ -8,20 +8,17 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/anthonyrego/toybox/wand"
+	"github.com/anthonyrego/toybox/games/calibration"
+	"github.com/anthonyrego/toybox/pkg/control"
 	"github.com/anthonyrego/toybox/pkg/engine"
 	"github.com/anthonyrego/toybox/pkg/mesh"
 	"github.com/anthonyrego/toybox/pkg/renderer"
 	"github.com/anthonyrego/toybox/pkg/ui"
+	"github.com/anthonyrego/toybox/wand"
 )
 
 const (
-	flySpeed     = float32(8.0)   // forward units/s
-	maxPitchRate = float32(90.0)  // max deg/s
-	maxRollRate  = float32(120.0) // max deg/s
-	maxYawRate   = float32(60.0)  // max deg/s (direct wand yaw)
-	bankTurnRate = float32(70.0)  // max deg/s additional yaw from banking
-	deadZone     = float32(5.0)   // degrees of wand angle ignored as neutral
+	flySpeed = float32(8.0) // forward units/s
 
 	particleCount  = 3000
 	spawnRadiusMin = float32(2.0)  // min distance from camera
@@ -48,15 +45,15 @@ type Game struct {
 	partVB    *sdl.GPUBuffer
 	partIB    *sdl.GPUBuffer
 
-	// Neutral wand orientation (captured on first update)
-	neutralQ   mgl32.Quat
-	calibrated bool
+	// Calibration captures the neutral wand orientation on a web Calibrate
+	// press, so the pose the wand is held in at calibration reads as "level".
+	calib *calibration.Calibrator
 
 	debugMeshes [3]*mesh.Mesh
 }
 
 func New(w *wand.Listener) *Game {
-	return &Game{wand: w}
+	return &Game{wand: w, calib: calibration.New()}
 }
 
 func (g *Game) Init(e *engine.Engine) error {
@@ -176,55 +173,12 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	s := g.wand.State()
 	wq := mgl32.Quat{W: s.Q.W, V: mgl32.Vec3{s.Q.X, s.Q.Y, s.Q.Z}}
 
-	// Calibrate: capture first reading as neutral pose.
-	if !g.calibrated {
-		g.neutralQ = wq
-		g.calibrated = true
-	}
-
-	// Body-frame delta: how has the wand rotated relative to neutral, expressed
-	// in the neutral frame's own axes. neutralQ^-1 * wq is the active rotation
-	// from neutral to current, represented in neutral-local coordinates — this
-	// is what untangles pitch from yaw across the wand's full orientation.
-	qRel := g.neutralQ.Inverse().Mul(wq)
-	// Shortest-arc: q and -q are the same rotation but the 2*imag formula
-	// assumes W >= 0 so the arc stays within ±180°.
-	if qRel.W < 0 {
-		qRel = mgl32.Quat{W: -qRel.W, V: qRel.V.Mul(-1)}
-	}
-
-	// Small-angle body-frame offsets (radians → degrees).
-	// For small θ, q ≈ (1, axis * θ/2) so 2*imag ≈ axis*θ in the body frame.
-	// Wand frame: +X = tip-forward, +Y = up, +Z = right.
-	pitchOffset := mgl32.RadToDeg(2 * qRel.V.X()) // rotation about wand tip  = pitch
-	rollOffset := mgl32.RadToDeg(2 * qRel.V.Z())  // rotation about wand right = roll
-	yawOffset := mgl32.RadToDeg(2 * qRel.V.Y())   // rotation about wand up    = yaw
-
-	// Map offsets to angular rates with dead zone and clamping
-	pitchRate := applyDeadZone(pitchOffset, deadZone) * (maxPitchRate / 90.0)
-	rollRate := applyDeadZone(rollOffset, deadZone) * (maxRollRate / 90.0)
-	yawRate := applyDeadZone(yawOffset, deadZone) * (maxYawRate / 90.0)
-	pitchRate = clamp(pitchRate, -maxPitchRate, maxPitchRate)
-	rollRate = clamp(rollRate, -maxRollRate, maxRollRate)
-	yawRate = clamp(yawRate, -maxYawRate, maxYawRate)
-
-	// Bank-to-turn: extract current bank from the local right vector's Y component
-	localRight := g.orientation.Rotate(mgl32.Vec3{1, 0, 0})
-	sinBank := -localRight.Y()
-	bankYaw := sinBank * bankTurnRate
-	totalYaw := yawRate + bankYaw
-
-	// Build incremental rotations in local frame (right-multiply = local axes)
-	dPitch := mgl32.DegToRad(pitchRate * dt)
-	dRoll := mgl32.DegToRad(rollRate * dt)
-	dYaw := mgl32.DegToRad(totalYaw * dt)
-
-	qPitch := mgl32.QuatRotate(dPitch, mgl32.Vec3{1, 0, 0}) // pitch around local X
-	qRoll := mgl32.QuatRotate(dRoll, mgl32.Vec3{0, 0, -1})  // roll around local -Z (forward)
-	qYaw := mgl32.QuatRotate(-dYaw, mgl32.Vec3{0, 1, 0})    // yaw around local Y
-
-	g.orientation = g.orientation.Mul(qYaw).Mul(qPitch).Mul(qRoll)
-	g.orientation = g.orientation.Normalize()
+	// Direct tilt-to-fly: the wand's calibrated orientation (already in the
+	// engine's camera-aligned frame from calib.Track) IS the plane's attitude,
+	// so the same wand pose always yields the same heading — predictable, with no
+	// integrated rate drift. Track returns identity until the player calibrates,
+	// so the plane sits level until then.
+	g.orientation = g.calib.Track(wq)
 
 	// Move forward
 	forward := g.orientation.Rotate(mgl32.Vec3{0, 0, -1})
@@ -409,6 +363,14 @@ func (g *Game) Destroy(e *engine.Engine) {
 	}
 }
 
+// WebModule returns the game's control page: a single Calibrate button.
+func (g *Game) WebModule() control.GameModule {
+	return control.NewSettingsModule("FLYING", g.calib)
+}
+
+// NeedsCalibration reports whether the player has yet to calibrate the wand.
+func (g *Game) NeedsCalibration() bool { return !g.calib.Calibrated() }
+
 func (g *Game) spawnParticle(p *flyParticle) {
 	// Random point on unit sphere (uniform distribution)
 	for {
@@ -453,24 +415,4 @@ func (g *Game) spawnParticle(p *flyParticle) {
 	}
 	c := palette[rand.Intn(len(palette))]
 	p.R, p.G, p.B = c[0], c[1], c[2]
-}
-
-func applyDeadZone(angle, zone float32) float32 {
-	if angle > -zone && angle < zone {
-		return 0
-	}
-	if angle > 0 {
-		return angle - zone
-	}
-	return angle + zone
-}
-
-func clamp(v, lo, hi float32) float32 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
 }

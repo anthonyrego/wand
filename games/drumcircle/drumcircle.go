@@ -9,13 +9,14 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/anthonyrego/toybox/wand"
+	"github.com/anthonyrego/toybox/games/calibration"
 	"github.com/anthonyrego/toybox/pkg/audio"
 	"github.com/anthonyrego/toybox/pkg/control"
 	"github.com/anthonyrego/toybox/pkg/engine"
 	"github.com/anthonyrego/toybox/pkg/mesh"
 	"github.com/anthonyrego/toybox/pkg/renderer"
 	"github.com/anthonyrego/toybox/pkg/ui"
+	"github.com/anthonyrego/toybox/wand"
 )
 
 const (
@@ -123,8 +124,9 @@ func (ico *icosahedron) findFace(forward mgl32.Vec3) int {
 }
 
 type Game struct {
-	wand *wand.Listener
-	time float32
+	wand  *wand.Listener
+	calib *calibration.Calibrator
+	time  float32
 
 	ground *mesh.Mesh
 	events []hitEvent
@@ -154,15 +156,19 @@ type Game struct {
 
 func New(w *wand.Listener) *Game {
 	g := &Game{wand: w}
+	g.calib = calibration.New()
 	g.tuning.set(7.0, 0.15, 15.0, 2.5, 0.5, 25.0)
 	return g
 }
 
-// WebModule exposes drum-circle's tunables as a generic settings page on the
-// control server, editable live while the game runs.
+// WebModule exposes drum-circle's tunables plus a Calibrate button as a generic
+// settings page on the control server, editable live while the game runs.
 func (g *Game) WebModule() control.GameModule {
-	return control.NewSettingsModule("DRUM CIRCLE", &g.tuning)
+	return control.NewSettingsModule("DRUM CIRCLE", calibration.WithCalibrate(&g.tuning, g.calib))
 }
+
+// NeedsCalibration reports whether the player has yet to calibrate the wand.
+func (g *Game) NeedsCalibration() bool { return !g.calib.Calibrated() }
 
 func hsvToRGB(h, s, v float32) (uint8, uint8, uint8) {
 	h = h - float32(math.Floor(float64(h)))
@@ -243,6 +249,12 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 
 	s := g.wand.State()
 
+	// Body-frame delta from the calibrated neutral. Track must run every frame
+	// so a pending web Calibrate press is captured promptly; until the player
+	// calibrates it returns identity. Used for note (face) selection below.
+	wq := mgl32.Quat{W: s.Q.W, V: mgl32.Vec3{s.Q.X, s.Q.Y, s.Q.Z}}
+	qRel := g.calib.Track(wq)
+
 	// Read the web-tunable parameters once per frame (CPU snapshot; the HTTP
 	// handler mutates them on another goroutine under the same lock).
 	tn := g.tuning.snapshot()
@@ -267,9 +279,10 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	if accelMag > tn.hitThreshold && accelMag < g.lastAccelMag && (g.time-g.lastHitTime) > tn.accelCooldown {
 		g.lastHitTime = g.time
 
-		// Face selection from wand tip direction → note.
-		wq := mgl32.Quat{W: s.Q.W, V: mgl32.Vec3{s.Q.X, s.Q.Y, s.Q.Z}}
-		faceI := g.icosa.findFace(wq.Rotate(mgl32.Vec3{1, 0, 0}))
+		// Face selection from the calibrated wand tip direction → note, so the
+		// note map is anchored to the pose the player calibrated rather than the
+		// wand's absolute orientation.
+		faceI := g.icosa.findFace(qRel.Rotate(mgl32.Vec3{0, 0, -1}))
 		noteIdx := g.icosa.noteIdx[faceI]
 
 		// 1. Calculate normalized intensity (0.0 to 1.0) within the active range

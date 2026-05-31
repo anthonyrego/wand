@@ -1,10 +1,10 @@
 package games
 
 import (
-	"github.com/anthonyrego/toybox/wand"
 	"github.com/anthonyrego/toybox/games/splash"
 	"github.com/anthonyrego/toybox/pkg/control"
 	"github.com/anthonyrego/toybox/pkg/engine"
+	"github.com/anthonyrego/toybox/wand"
 )
 
 // GameDef describes a registered game. ID is a stable, author-assigned slug
@@ -20,6 +20,13 @@ type GameDef struct {
 // without one have no per-game page (the App installs nil on switch).
 type WebProvider interface {
 	WebModule() control.GameModule
+}
+
+// CalibrationPrompter is implemented by wand games that need an on-screen
+// "hold the wand straight up, then press Calibrate" prompt until the player
+// calibrates. The App draws the prompt centrally while NeedsCalibration is true.
+type CalibrationPrompter interface {
+	NeedsCalibration() bool
 }
 
 // ControlBridge wires the App to the always-on control server and its shared

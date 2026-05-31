@@ -6,13 +6,13 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/anthonyrego/toybox/wand"
 	"github.com/anthonyrego/toybox/games/splash"
 	"github.com/anthonyrego/toybox/pkg/control"
 	"github.com/anthonyrego/toybox/pkg/engine"
 	"github.com/anthonyrego/toybox/pkg/mesh"
 	"github.com/anthonyrego/toybox/pkg/renderer"
 	"github.com/anthonyrego/toybox/pkg/ui"
+	"github.com/anthonyrego/toybox/wand"
 )
 
 const (
@@ -145,7 +145,101 @@ func (a *App) Render(e *engine.Engine, frame renderer.RenderFrame) {
 
 func (a *App) Overlay(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *sdl.GPUTexture) {
 	a.current.Overlay(e, cmdBuf, target)
+	a.drawCalibratePrompt(e, cmdBuf, target)
 	a.drawEscCounter(e, cmdBuf, target)
+}
+
+// drawCalibratePrompt centers a "hold the wand straight up, then press
+// Calibrate" overlay (dim panel + upward arrow + two text lines) whenever the
+// active game still needs calibration. The meshes are rebuilt and freed each
+// frame so nothing leaks once the player calibrates. Drawn before the esc
+// counter so that small top-left countdown stays on top.
+func (a *App) drawCalibratePrompt(e *engine.Engine, cmdBuf *sdl.GPUCommandBuffer, target *sdl.GPUTexture) {
+	cp, ok := a.current.(CalibrationPrompter)
+	if !ok || !cp.NeedsCalibration() {
+		return
+	}
+
+	w := float32(e.Win.Width())
+	h := float32(e.Win.Height())
+	ortho := mgl32.Ortho2D(0, w, h, 0)
+
+	// Dim full-screen panel for legibility (black, ~alpha 140).
+	panel, err := quadMesh(e.Rend, 0, 0, w, h, 0, 0, 0, 140)
+	if err != nil {
+		return
+	}
+	defer panel.Destroy(e.Rend)
+
+	// Upward-pointing arrow, sized relative to screen height, bright blue.
+	const ar, ag, ab, aa uint8 = 120, 200, 255, 255
+	headH := h * 0.10
+	headW := h * 0.16
+	shaftH := h * 0.14
+	shaftW := h * 0.05
+	cx := w / 2
+	top := h * 0.18 // arrow apex near the upper third
+	headBottom := top + headH
+	arrowVerts := []renderer.Vertex{
+		// head triangle (apex at top, base at headBottom)
+		{X: cx, Y: top, Z: 0, R: ar, G: ag, B: ab, A: aa},
+		{X: cx - headW/2, Y: headBottom, Z: 0, R: ar, G: ag, B: ab, A: aa},
+		{X: cx + headW/2, Y: headBottom, Z: 0, R: ar, G: ag, B: ab, A: aa},
+		// shaft rectangle (below the head)
+		{X: cx - shaftW/2, Y: headBottom, Z: 0, R: ar, G: ag, B: ab, A: aa},
+		{X: cx + shaftW/2, Y: headBottom, Z: 0, R: ar, G: ag, B: ab, A: aa},
+		{X: cx + shaftW/2, Y: headBottom + shaftH, Z: 0, R: ar, G: ag, B: ab, A: aa},
+		{X: cx - shaftW/2, Y: headBottom + shaftH, Z: 0, R: ar, G: ag, B: ab, A: aa},
+	}
+	arrowIdx := []uint16{0, 1, 2, 3, 4, 5, 3, 5, 6}
+	arrow, err := newMesh(e.Rend, arrowVerts, arrowIdx)
+	if err != nil {
+		return
+	}
+	defer arrow.Destroy(e.Rend)
+
+	// Two centered text lines below the arrow.
+	const ps = float32(3)
+	line1, w1, err := ui.NewTextMesh(e.Rend, "HOLD YOUR WAND POINTING STRAIGHT UP", ps, 255, 255, 255, 255)
+	if err != nil {
+		return
+	}
+	defer line1.Destroy(e.Rend)
+	line2, w2, err := ui.NewTextMesh(e.Rend, "THEN PRESS CALIBRATE ON THE APP", ps, ar, ag, ab, 255)
+	if err != nil {
+		return
+	}
+	defer line2.Destroy(e.Rend)
+
+	textY := headBottom + shaftH + h*0.10
+	lineGap := h * 0.07
+
+	pass := e.Rend.BeginUIPass(cmdBuf, target)
+	e.Rend.DrawUI(cmdBuf, pass, renderer.DrawCall{
+		VertexBuffer: panel.VertexBuffer,
+		IndexBuffer:  panel.IndexBuffer,
+		IndexCount:   panel.IndexCount,
+		Transform:    ortho,
+	})
+	e.Rend.DrawUI(cmdBuf, pass, renderer.DrawCall{
+		VertexBuffer: arrow.VertexBuffer,
+		IndexBuffer:  arrow.IndexBuffer,
+		IndexCount:   arrow.IndexCount,
+		Transform:    ortho,
+	})
+	e.Rend.DrawUI(cmdBuf, pass, renderer.DrawCall{
+		VertexBuffer: line1.VertexBuffer,
+		IndexBuffer:  line1.IndexBuffer,
+		IndexCount:   line1.IndexCount,
+		Transform:    ortho.Mul4(mgl32.Translate3D((w-w1)/2, textY, 0)),
+	})
+	e.Rend.DrawUI(cmdBuf, pass, renderer.DrawCall{
+		VertexBuffer: line2.VertexBuffer,
+		IndexBuffer:  line2.IndexBuffer,
+		IndexCount:   line2.IndexCount,
+		Transform:    ortho.Mul4(mgl32.Translate3D((w-w2)/2, textY+lineGap, 0)),
+	})
+	e.Rend.EndUIPass(pass)
 }
 
 // drawEscCounter overlays the quit countdown on top of whatever is on screen
@@ -192,4 +286,31 @@ func (a *App) Destroy(e *engine.Engine) {
 		a.escMesh = nil
 	}
 	a.current.Destroy(e)
+}
+
+// newMesh uploads solid-color UI geometry to a GPU mesh, releasing the vertex
+// buffer if the index buffer fails so nothing leaks on a partial upload.
+func newMesh(r *renderer.Renderer, verts []renderer.Vertex, idx []uint16) (*mesh.Mesh, error) {
+	vb, err := r.CreateVertexBuffer(verts)
+	if err != nil {
+		return nil, err
+	}
+	ib, err := r.CreateIndexBuffer(idx)
+	if err != nil {
+		r.ReleaseBuffer(vb)
+		return nil, err
+	}
+	return &mesh.Mesh{VertexBuffer: vb, IndexBuffer: ib, IndexCount: uint32(len(idx))}, nil
+}
+
+// quadMesh builds a solid-color axis-aligned rectangle (top-left origin) as a UI
+// mesh, ready to draw under an Ortho2D transform.
+func quadMesh(r *renderer.Renderer, x, y, w, h float32, cr, cg, cb, ca uint8) (*mesh.Mesh, error) {
+	verts := []renderer.Vertex{
+		{X: x, Y: y, Z: 0, R: cr, G: cg, B: cb, A: ca},
+		{X: x + w, Y: y, Z: 0, R: cr, G: cg, B: cb, A: ca},
+		{X: x + w, Y: y + h, Z: 0, R: cr, G: cg, B: cb, A: ca},
+		{X: x, Y: y + h, Z: 0, R: cr, G: cg, B: cb, A: ca},
+	}
+	return newMesh(r, verts, []uint16{0, 1, 2, 0, 2, 3})
 }

@@ -22,7 +22,11 @@ type GameModule interface {
 // SettingType is the control kind the generic settings page renders.
 type SettingType string
 
-const SettingFloat SettingType = "float"
+// Setting kinds a SettingsModel can expose on its web page.
+const (
+	SettingFloat  SettingType = "float"  // a slider
+	SettingButton SettingType = "button" // a momentary action button
+)
 
 // Setting describes one tunable a game exposes to the generic settings page.
 type Setting struct {

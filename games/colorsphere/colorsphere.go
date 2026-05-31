@@ -8,11 +8,13 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/anthonyrego/toybox/wand"
+	"github.com/anthonyrego/toybox/games/calibration"
+	"github.com/anthonyrego/toybox/pkg/control"
 	"github.com/anthonyrego/toybox/pkg/engine"
 	"github.com/anthonyrego/toybox/pkg/mesh"
 	"github.com/anthonyrego/toybox/pkg/renderer"
 	"github.com/anthonyrego/toybox/pkg/ui"
+	"github.com/anthonyrego/toybox/wand"
 )
 
 const numSamples = 300
@@ -63,17 +65,16 @@ type Game struct {
 	writePos int
 	filled   bool
 
-	// Neutral wand orientation (captured on first update). The sphere's
-	// rotation is the body-frame delta from neutral — so whatever pose the
-	// wand is in when the game starts becomes the sphere's "zero."
-	neutralQ   mgl32.Quat
-	calibrated bool
+	// Calibration captures the neutral wand orientation on a web Calibrate
+	// press. The sphere's rotation is the body-frame delta from neutral — so
+	// the pose the wand is held in at calibration becomes the sphere's "zero."
+	calib *calibration.Calibrator
 
 	debugMeshes [3]*mesh.Mesh
 }
 
 func New(w *wand.Listener) *Game {
-	return &Game{wand: w}
+	return &Game{wand: w, calib: calibration.New()}
 }
 
 func (g *Game) Init(e *engine.Engine) error {
@@ -175,7 +176,6 @@ func (g *Game) Init(e *engine.Engine) error {
 	}
 
 	g.rotation = mgl32.Ident4()
-	g.calibrated = false
 
 	// Particle river
 	g.particles = make([]riverParticle, particleCount)
@@ -192,12 +192,12 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 	s := g.wand.State()
 
 	wq := mgl32.Quat{W: s.Q.W, V: mgl32.Vec3{s.Q.X, s.Q.Y, s.Q.Z}}
-	if !g.calibrated {
-		g.neutralQ = wq
-		g.calibrated = true
-	}
-	qRel := g.neutralQ.Inverse().Mul(wq)
-	g.rotation = qRel.Mat4()
+	// Invert the delta so the sphere uses the same convention as Flying: the
+	// wand drives the camera's view (look-around), not the model. Rotating the
+	// sphere model by qRel would look like the opposite of rotating the camera
+	// by qRel, so qRel.Inverse() makes a wand tilt move the view the matching way.
+	qRel := g.calib.Track(wq)
+	g.rotation = qRel.Inverse().Mat4()
 
 	mag := float32(math.Sqrt(float64(s.LinAccelX*s.LinAccelX + s.LinAccelY*s.LinAccelY + s.LinAccelZ*s.LinAccelZ)))
 	g.samples[g.writePos] = mag
@@ -425,3 +425,11 @@ func (g *Game) sampleWaveAtX(x float32) float32 {
 	}
 	return (normalized - 0.5) * 2.0 * waveAmplitude
 }
+
+// WebModule returns the game's control page: a single Calibrate button.
+func (g *Game) WebModule() control.GameModule {
+	return control.NewSettingsModule("COLOR SPHERE", g.calib)
+}
+
+// NeedsCalibration reports whether the player has yet to calibrate the wand.
+func (g *Game) NeedsCalibration() bool { return !g.calib.Calibrated() }

@@ -10,7 +10,6 @@ import (
 
 	"github.com/anthonyrego/toybox/wand"
 	"github.com/anthonyrego/toybox/games"
-	"github.com/anthonyrego/toybox/games/colorsphere"
 	"github.com/anthonyrego/toybox/games/drumcircle"
 	"github.com/anthonyrego/toybox/games/flashcard"
 	"github.com/anthonyrego/toybox/games/flying"
@@ -47,7 +46,6 @@ func main() {
 	// screen. The control server learns the list as data, so it never imports
 	// the games package.
 	defs := []games.GameDef{
-		{ID: "color-sphere", Name: "COLOR SPHERE", New: func(w *wand.Listener) engine.Game { return colorsphere.New(w) }},
 		{ID: "flying", Name: "FLYING", New: func(w *wand.Listener) engine.Game { return flying.New(w) }},
 		{ID: "drum-circle", Name: "DRUM CIRCLE", New: func(w *wand.Listener) engine.Game { return drumcircle.New(w) }},
 		{ID: "flashcards", Name: "FLASHCARDS", New: func(w *wand.Listener) engine.Game { return flashcard.New(w) }},

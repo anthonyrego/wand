@@ -94,7 +94,7 @@ func Setting() control.Setting {
 }
 
 // Settings implements control.SettingsModel for a game whose only web control is
-// the Calibrate button (e.g. Color Sphere, Flying). Games with their own sliders
+// the Calibrate button (e.g. Flying). Games with their own sliders
 // use WithCalibrate instead.
 func (c *Calibrator) Settings() []control.Setting {
 	return []control.Setting{Setting()}

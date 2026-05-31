@@ -62,7 +62,7 @@ func (g *Game) Init(e *engine.Engine) error {
 	e.Cam.Position = mgl32.Vec3{0, 0, 0}
 	e.Cam.Far = 100
 
-	// Sky dome — same sphere as colorsphere
+	// Sky dome
 	const (
 		sphereRadius   = 30.0
 		sphereRings    = 16

@@ -21,8 +21,8 @@ From that one page you can:
 - **Pick / switch the active game** (replaces the in-app selector screen).
 - **Adjust video/display settings**: fullscreen, resolution, draw distance, HDR
   (currently in the in-app pause menu, `pkg/ui`).
-- **Adjust per-game settings**: e.g. drum-circle hit thresholds/exponent, sphere
-  colors, flying sensitivity — anything a game wants to expose.
+- **Adjust per-game settings**: e.g. drum-circle hit thresholds/exponent,
+  flying sensitivity — anything a game wants to expose.
 - **Personalize** the wand name (already web-driven, see below).
 - **Manage flashcards** (already web-driven, see below).
 

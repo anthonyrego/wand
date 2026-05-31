@@ -85,8 +85,6 @@ The control server runs on port `8080` (override with `TOYBOX_CONTROL_PORT`); se
 ### Games
 
 The wand connects once and is shared across all games:
-
-- **Color Sphere** — an inward-facing color sphere that rotates with the wand, plus a particle river driven by linear acceleration. Captures a neutral pose on the first frame, so however you're holding the wand when the game starts becomes the sphere's zero. A simple cause-and-effect toy for babies 10 months+.
 - **Flying** — a flight simulator where the wand controls pitch, roll, and yaw as angular rates. Captures a neutral pose on the first frame and computes body-frame deltas from there, with particle effects and a sky dome.
 - **Drum Circle** — point the wand in a direction and shake; each direction picks a note from a 20-note minor pentatonic mapped to the faces of an icosahedron. Uses linear acceleration magnitude for hit detection and synthesizes tones through SDL3 audio. Its hit/trail sensitivity is tunable live from the game's settings page.
 - **Flashcards** — shows one large picture with its name; the wand is unused here. Manage the deck from the game's page in the web UI: upload card images, add multiple photos per card, name and reorder them, and pick which is on screen (and which photo). The deck persists to `~/.toybox/flashcards` between runs (override with `TOYBOX_FLASHCARD_DIR`).

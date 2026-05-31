@@ -102,6 +102,11 @@ release:
 notarize:
   macos:
     - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+      # universal_binaries (replace:true) swaps the per-arch darwin builds for
+      # this id, so notarize must target it — otherwise it finds no darwin
+      # binaries and silently skips.
+      ids:
+        - toybox-universal
       sign:
         certificate: "{{ .Env.MACOS_SIGN_P12 }}"
         password: "{{ .Env.MACOS_SIGN_PASSWORD }}"

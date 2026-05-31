@@ -6,14 +6,25 @@
 // Create config.h from config.h.example. WiFi credentials are OPTIONAL there
 // now — see the provisioning note below.
 #include "config.h"
+
+// WiFi credentials are optional — default to empty if config.h omits (or
+// comments out) them, so the sketch always builds. Empty means "provision via
+// the setup portal".
+#ifndef WIFI_SSID
+#define WIFI_SSID ""
+#endif
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD ""
+#endif
+
 const int UDP_PORT = 9999;
 
 // --- WiFi provisioning ---
 // On first boot — or whenever saved credentials fail — the wand opens its own
 // open WiFi network ("Toy Box Wand Setup"). A parent joins it on a phone and a
 // captive page lets them pick their home WiFi: no recompile, no hardcoded
-// credentials. config.h's WIFI_SSID is an optional compile-time override
-// (handy for dev/CI); leave it empty ("") to always provision via the portal.
+// credentials. config.h's WIFI_SSID, if set, only seeds a never-provisioned
+// wand (dev/CI convenience); a portal-provisioned network always wins after.
 const char *SETUP_AP_NAME              = "Toy Box Wand Setup";
 const unsigned long WIFI_CONNECT_TIMEOUT_S = 20;      // try saved creds this long before opening the portal
 const unsigned long WIFI_PORTAL_TIMEOUT_S  = 180;     // close an unattended portal and reboot to retry
@@ -77,45 +88,41 @@ static void setLED(uint8_t r, uint8_t g, uint8_t b) {
   myCodeCell.LED(r, g, b);
 }
 
-// Bring up WiFi: try the optional compile-time creds, then fall back to the
-// captive portal so a non-technical user can provision the wand on any network
-// without reflashing. Blocks until connected; reboots to retry if the portal
-// is left unattended.
+// Bring up WiFi. WiFiManager owns the saved credentials: it reconnects to the
+// last network a parent set up, and only opens the "Toy Box Wand Setup" portal
+// when that fails. config.h's WIFI_SSID, if set, seeds ONLY a never-provisioned
+// wand (a dev/CI convenience), so a portal-provisioned network always wins on
+// later boots. Blocks until connected; reboots to retry if the portal is left
+// unattended.
 void connectWiFi() {
   setLED(0, 0, 40);  // dim blue: working on it
 
-  bool connected = false;
+  // Initialize the WiFi driver so any saved credentials are loaded from NVS
+  // before we inspect them (getWiFiIsSaved reads the stored station config).
+  WiFi.mode(WIFI_STA);
 
-  // Optional compile-time override (dev/CI). Empty SSID -> straight to portal.
-  if (strlen(WIFI_SSID) > 0) {
-    Serial.print("Trying configured WiFi \"");
-    Serial.print(WIFI_SSID);
-    Serial.print("\"");
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED &&
-           millis() - start < WIFI_CONNECT_TIMEOUT_S * 1000UL) {
-      delay(250);
-      Serial.print(".");
-    }
-    Serial.println();
-    connected = (WiFi.status() == WL_CONNECTED);
+  WiFiManager wm;
+  wm.setConnectTimeout(WIFI_CONNECT_TIMEOUT_S);
+  wm.setConfigPortalTimeout(WIFI_PORTAL_TIMEOUT_S);
+  wm.setAPCallback([](WiFiManager *) {
+    setLED(0, 0, 255);  // solid blue: "join my WiFi to set me up"
+    Serial.print("Setup portal open — join WiFi network: ");
+    Serial.println(SETUP_AP_NAME);
+  });
+
+  // Seed from config.h only on a never-provisioned wand. Once any network is
+  // saved (here or via the portal) it wins on every boot and config.h is
+  // ignored until the flash is erased. Gating on !getWiFiIsSaved() keeps the
+  // preloaded default from ever overriding a real saved network.
+  if (strlen(WIFI_SSID) > 0 && !wm.getWiFiIsSaved()) {
+    Serial.print("No saved WiFi — seeding from config.h: ");
+    Serial.println(WIFI_SSID);
+    wm.preloadWiFi(WIFI_SSID, WIFI_PASSWORD);
   }
 
-  // Captive portal: WiFiManager first retries any creds it saved on a previous
-  // setup, and only opens the "Toy Box Wand Setup" AP if that fails.
-  if (!connected) {
-    WiFiManager wm;
-    wm.setConnectTimeout(WIFI_CONNECT_TIMEOUT_S);
-    wm.setConfigPortalTimeout(WIFI_PORTAL_TIMEOUT_S);
-    wm.setAPCallback([](WiFiManager *) {
-      setLED(0, 0, 255);  // solid blue: "join my WiFi to set me up"
-      Serial.print("Setup portal open — join WiFi network: ");
-      Serial.println(SETUP_AP_NAME);
-    });
-    connected = wm.autoConnect(SETUP_AP_NAME);  // open network (no password)
-  }
+  // Reconnect with saved creds (or the config.h seed); open the
+  // "Toy Box Wand Setup" portal (open network, no password) only if that fails.
+  bool connected = wm.autoConnect(SETUP_AP_NAME);
 
   if (!connected) {
     Serial.println("WiFi setup timed out — restarting to try again.");

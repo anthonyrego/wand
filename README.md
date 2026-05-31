@@ -91,7 +91,7 @@ The connect screen's title can be personalized for your child — instead of **T
 2. **Connect the wand to WiFi (one time).** On first boot the wand opens its own WiFi network, **"Toy Box Wand Setup"**, and the onboard LED glows blue. Join that network from a phone; a captive page pops up where you pick your home WiFi and enter its password. The wand saves it and reconnects on its own from then on. If your WiFi later changes, the wand reopens the setup network automatically — no reflashing.
 3. The wand then discovers the screen automatically over UDP — no IP configuration needed.
 
-> **Dev/CI shortcut:** set `WIFI_SSID`/`WIFI_PASSWORD` in `config.h` to bake a network in at build time; the wand tries those first and falls back to the setup portal if they fail.
+> **Dev/CI shortcut:** set `WIFI_SSID`/`WIFI_PASSWORD` in `config.h` to seed a *brand-new* wand so it skips the portal on first boot. The wand only uses them when nothing has been provisioned yet — once it's been set up (here or via the portal) the saved network wins on every boot; `erase_flash` to re-seed from `config.h`.
 
 ### Wand-frame calibration
 

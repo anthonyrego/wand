@@ -1,8 +1,10 @@
 // WiFi credentials are OPTIONAL. Leave WIFI_SSID empty ("") and on first boot
 // the wand opens its own "Toy Box Wand Setup" WiFi network — join it from a
 // phone and pick your home network from the captive page. No reflashing, no
-// hardcoded passwords. Set these only to bake a network in at build time (handy
-// for development/CI); the setup portal is still used as a fallback if they fail.
+// hardcoded passwords. Setting them only seeds a brand-new (never-provisioned)
+// wand — a dev/CI convenience. Once the wand is set up (here or via the portal)
+// the saved network wins on every boot and these are ignored until you erase
+// the flash.
 #define WIFI_SSID     ""
 #define WIFI_PASSWORD ""
 

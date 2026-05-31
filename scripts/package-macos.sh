@@ -45,12 +45,28 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>${VERSION}</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleExecutable</key><string>toybox</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
+
+# --- app icon: build AppIcon.icns from assets/icon.png (1024x1024) ---
+ICON_SRC="assets/icon.png"
+if [[ -f "$ICON_SRC" ]]; then
+  ICONSET="$WORK/AppIcon.iconset"
+  mkdir -p "$ICONSET"
+  for s in 16 32 128 256 512; do
+    sips -z "$s" "$s" "$ICON_SRC" --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+    sips -z "$((s * 2))" "$((s * 2))" "$ICON_SRC" --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+  echo "app icon: $(du -h "$APP/Contents/Resources/AppIcon.icns" | cut -f1)"
+else
+  echo "no $ICON_SRC — building .app without a custom icon"
+fi
 
 # --- import the Developer ID cert into a throwaway keychain ---
 KEYCHAIN="$WORK/signing.keychain-db"

@@ -78,6 +78,16 @@ Actions → New repository secret).
 Once these exist, the next `v*` tag produces a signed, notarized, stapled macOS
 universal binary that opens with no security prompt.
 
+## macOS .app / .dmg
+
+A bare unix binary can't be double-clicked in Finder ("not an app"), so after
+GoReleaser runs, `scripts/package-macos.sh` wraps the universal binary in a
+**Toy Box.app**, signs it (Developer ID + hardened runtime + the
+`disable-library-validation` entitlement that the embedded SDL3 needs),
+notarizes + staples both the app and a `.dmg`, and uploads the `.dmg` to the
+release. It uses the same five secrets above — no extra setup — and no-ops if
+they're absent.
+
 ## Windows & Linux
 
 - **Windows** binaries are unsigned (SmartScreen will warn on first run). Code

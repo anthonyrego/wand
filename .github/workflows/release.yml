@@ -46,3 +46,16 @@ jobs:
           MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+
+      # Wrap the universal binary in a double-clickable, signed+notarized+stapled
+      # Toy Box.app inside a .dmg, and attach it to the release. No-ops without
+      # the signing secrets. See scripts/package-macos.sh.
+      - name: Package & notarize macOS .app + .dmg
+        run: ./scripts/package-macos.sh "${GITHUB_REF_NAME#v}"
+        env:
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

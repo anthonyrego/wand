@@ -4,10 +4,11 @@ A DIY toddler toy. A screen runs a set of mini-games, all driven from any phone 
 
 ## Download
 
-Prebuilt binaries are on the [Releases page](https://github.com/anthonyrego/toybox/releases). Download the archive for your computer, extract it, and run `toybox` — it opens the screen and prints a URL (with an on-screen QR code) to control everything from a phone.
+Prebuilt builds are on the [Releases page](https://github.com/anthonyrego/toybox/releases). Once running, the app opens the screen and prints a URL (with an on-screen QR code) to control everything from a phone.
 
-- **macOS**, **Windows**, and **Linux (amd64)** bundle SDL3 — nothing else to install.
-- **Linux on a Raspberry Pi (arm64)** needs system SDL3 at runtime: `sudo apt install libsdl3-0` (or your distro's equivalent).
+- **macOS** — download `toybox_<version>_macos.dmg`, open it, and drag **Toy Box** to Applications. It's a universal app (Intel + Apple Silicon), signed and notarized by Apple, so it just double-clicks open. (A `..._darwin_all.tar.gz` with the bare binary is also there for running from a terminal.)
+- **Windows** / **Linux (amd64)** — download the archive, extract, run `toybox` (SDL3 is bundled).
+- **Linux on a Raspberry Pi (arm64)** — extract and run `toybox`; needs system SDL3: `sudo apt install libsdl3-0` (or your distro's equivalent).
 
 To build from source instead, see [Requirements](#requirements) and run `make play`.
 

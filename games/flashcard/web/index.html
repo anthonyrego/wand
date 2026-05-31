@@ -103,6 +103,41 @@
     font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 10;
   }
   .toast.show { opacity: 1; }
+
+  /* Crop modal: shown after picking a photo so a parent can frame the subject. */
+  .cropback {
+    position: fixed; inset: 0; z-index: 20;
+    background: rgba(8,6,14,.88);
+    display: none; align-items: center; justify-content: center; padding: 16px;
+  }
+  .cropback.show { display: flex; }
+  .cropmodal {
+    background: var(--panel); border-radius: 14px; padding: 14px;
+    display: flex; flex-direction: column; gap: 12px;
+    max-width: 100%; max-height: 100%;
+  }
+  .crophint { font-size: 13px; color: var(--muted); text-align: center; }
+  .cropstage {
+    position: relative; margin: 0 auto; line-height: 0;
+    background: #000; touch-action: none;
+    user-select: none; -webkit-user-select: none;
+  }
+  .cropstage img { display: block; pointer-events: none; }
+  .cropsel {
+    position: absolute; box-sizing: border-box;
+    border: 2px solid var(--accent); cursor: move;
+  }
+  .crophandle {
+    position: absolute; width: 28px; height: 28px;
+    background: var(--accent); border: 2px solid #1a1208; border-radius: 50%;
+    touch-action: none;
+  }
+  .crophandle.nw { left: -14px; top: -14px; cursor: nwse-resize; }
+  .crophandle.ne { right: -14px; top: -14px; cursor: nesw-resize; }
+  .crophandle.sw { left: -14px; bottom: -14px; cursor: nesw-resize; }
+  .crophandle.se { right: -14px; bottom: -14px; cursor: nwse-resize; }
+  .cropbtns { display: flex; gap: 10px; }
+  .cropbtns button { flex: 1; }
 </style>
 </head>
 <body>
@@ -135,6 +170,25 @@
 </main>
 
 <div class="toast" id="toast"></div>
+
+<div class="cropback" id="cropback">
+  <div class="cropmodal">
+    <div class="crophint">Drag the corners to crop, or just tap Use photo.</div>
+    <div class="cropstage" id="cropstage">
+      <img id="cropimg" alt="">
+      <div class="cropsel" id="cropsel">
+        <div class="crophandle nw" data-h="nw"></div>
+        <div class="crophandle ne" data-h="ne"></div>
+        <div class="crophandle sw" data-h="sw"></div>
+        <div class="crophandle se" data-h="se"></div>
+      </div>
+    </div>
+    <div class="cropbtns">
+      <button class="ghost" id="cropCancel">Cancel</button>
+      <button class="primary" id="cropOk">Use photo</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -311,6 +365,106 @@ async function delPhoto(id, photoId) {
   catch (e) { toast(e.message); }
 }
 
+// cropImage shows the crop modal for a picked File and resolves to a cropped
+// JPEG Blob (or null if cancelled). The crop box is tracked in display pixels
+// over a scaled <img>; on confirm we map back to natural pixels and draw the
+// region to a canvas. Output is capped at the server's max dimension so uploads
+// stay small, and the browser bakes in EXIF orientation, so the saved pixels
+// already face the right way (the server then sees no orientation to apply).
+const CROP_MAX = 1024, CROP_MIN = 24;
+function cropImage(file) {
+  return new Promise((resolve) => {
+    const back = $("cropback"), stage = $("cropstage"), img = $("cropimg"), sel = $("cropsel");
+    const url = URL.createObjectURL(file);
+    let crop = { x: 0, y: 0, w: 0, h: 0 }; // display px, relative to stage
+    let scale = 1;                          // display px per natural px
+    let drag = null;
+
+    function place() {
+      sel.style.left = crop.x + "px"; sel.style.top = crop.y + "px";
+      sel.style.width = crop.w + "px"; sel.style.height = crop.h + "px";
+    }
+    function point(e) {
+      const r = stage.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+    function onDown(e) {
+      drag = { h: e.target.dataset.h || "", start: point(e), orig: { ...crop } };
+      e.preventDefault();
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    }
+    function onMove(e) {
+      if (!drag) return;
+      const p = point(e), W = stage.clientWidth, H = stage.clientHeight;
+      if (!drag.h) { // move the whole box
+        crop.x = Math.max(0, Math.min(drag.orig.x + (p.x - drag.start.x), W - crop.w));
+        crop.y = Math.max(0, Math.min(drag.orig.y + (p.y - drag.start.y), H - crop.h));
+      } else {       // drag one corner; opposite corner stays put
+        let l = crop.x, t = crop.y, r = crop.x + crop.w, b = crop.y + crop.h;
+        const px = Math.max(0, Math.min(p.x, W)), py = Math.max(0, Math.min(p.y, H));
+        if (drag.h.includes("w")) l = Math.min(px, r - CROP_MIN);
+        if (drag.h.includes("e")) r = Math.max(px, l + CROP_MIN);
+        if (drag.h.includes("n")) t = Math.min(py, b - CROP_MIN);
+        if (drag.h.includes("s")) b = Math.max(py, t + CROP_MIN);
+        crop = { x: l, y: t, w: r - l, h: b - t };
+      }
+      place();
+    }
+    function onUp() {
+      drag = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    function cleanup() {
+      back.classList.remove("show");
+      sel.removeEventListener("pointerdown", onDown);
+      $("cropOk").removeEventListener("click", onOk);
+      $("cropCancel").removeEventListener("click", onCancel);
+      back.removeEventListener("pointerdown", onBackdrop);
+      window.removeEventListener("keydown", onKey);
+      onUp();
+      img.onload = img.onerror = null;
+      URL.revokeObjectURL(url);
+    }
+    function onCancel() { cleanup(); resolve(null); }
+    function onBackdrop(e) { if (e.target === back) onCancel(); }
+    function onKey(e) { if (e.key === "Escape") onCancel(); }
+    function onOk() {
+      let sx = Math.round(crop.x / scale), sy = Math.round(crop.y / scale);
+      let sw = Math.max(1, Math.round(crop.w / scale)), sh = Math.max(1, Math.round(crop.h / scale));
+      sx = Math.min(sx, img.naturalWidth - 1); sy = Math.min(sy, img.naturalHeight - 1);
+      sw = Math.min(sw, img.naturalWidth - sx); sh = Math.min(sh, img.naturalHeight - sy);
+      const k = Math.min(1, CROP_MAX / Math.max(sw, sh));
+      const ow = Math.max(1, Math.round(sw * k)), oh = Math.max(1, Math.round(sh * k));
+      const canvas = document.createElement("canvas");
+      canvas.width = ow; canvas.height = oh;
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, ow, oh);
+      cleanup();
+      canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.9);
+    }
+    img.onerror = () => { cleanup(); toast("Could not read that image."); resolve(null); };
+    img.onload = () => {
+      const maxW = Math.min(window.innerWidth - 60, 560), maxH = window.innerHeight * 0.6;
+      scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
+      const dw = Math.round(img.naturalWidth * scale), dh = Math.round(img.naturalHeight * scale);
+      img.style.width = stage.style.width = dw + "px";
+      img.style.height = stage.style.height = dh + "px";
+      crop = { x: 0, y: 0, w: dw, h: dh };
+      place();
+      sel.addEventListener("pointerdown", onDown);
+      $("cropOk").addEventListener("click", onOk);
+      $("cropCancel").addEventListener("click", onCancel);
+      back.addEventListener("pointerdown", onBackdrop);
+      window.addEventListener("keydown", onKey);
+      back.classList.add("show");
+    };
+    img.src = url;
+  });
+}
+
 // A hidden, reusable file input drives "add photo" for any card.
 const photoPicker = document.createElement("input");
 photoPicker.type = "file";
@@ -327,8 +481,10 @@ function addPhoto(cardId) {
 photoPicker.addEventListener("change", async () => {
   const file = photoPicker.files[0];
   if (!file || !photoTargetCard) return;
+  const blob = await cropImage(file);
+  if (!blob) return;
   const fd = new FormData();
-  fd.append("image", file);
+  fd.append("image", blob, "photo.jpg");
   try {
     await api("POST", "/api/cards/" + photoTargetCard + "/photos", fd, true);
     await refresh();
@@ -361,8 +517,11 @@ $("addForm").addEventListener("submit", async (e) => {
   const name = $("nameInput").value.trim();
   if (!file || !name) { toast("Pick an image and enter a name."); return; }
 
+  const blob = await cropImage(file);
+  if (!blob) return; // cancelled the crop
+
   const fd = new FormData();
-  fd.append("image", file);
+  fd.append("image", blob, "card.jpg");
   fd.append("name", name);
 
   const btn = $("addBtn");

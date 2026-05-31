@@ -2,6 +2,15 @@
 
 A DIY toddler toy. A screen runs a set of mini-games, all driven from any phone or laptop on the LAN. Some games are controlled by a wireless motion **wand** — a [CodeCell C6](https://microbots.io/products/codecell-c6) (ESP32-C6 + BNO085 9-axis IMU) that streams orientation and motion over UDP into the Go `wand` package shown below; others (like flashcards) just use the screen.
 
+## Download
+
+Prebuilt binaries are on the [Releases page](https://github.com/anthonyrego/toybox/releases). Download the archive for your computer, extract it, and run `toybox` — it opens the screen and prints a URL (with an on-screen QR code) to control everything from a phone.
+
+- **macOS**, **Windows**, and **Linux (amd64)** bundle SDL3 — nothing else to install.
+- **Linux on a Raspberry Pi (arm64)** needs system SDL3 at runtime: `sudo apt install libsdl3-0` (or your distro's equivalent).
+
+To build from source instead, see [Requirements](#requirements) and run `make play`.
+
 ## Usage
 
 ```go

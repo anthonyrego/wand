@@ -19,7 +19,12 @@ import (
 	"github.com/anthonyrego/toybox/pkg/engine"
 )
 
+// version is stamped at release time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
+	fmt.Println("Toy Box", version)
+
 	err := sdl.LoadLibrary(sdl.Path())
 	if err != nil {
 		fmt.Println("Loading embedded SDL3 library...")

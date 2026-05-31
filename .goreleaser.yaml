@@ -1,0 +1,79 @@
+# GoReleaser config — builds the Toy Box host app for every desktop/Pi target
+# and publishes a GitHub Release on each `v*` tag. The app uses go-sdl3 (purego,
+# no cgo) with SDL3 embedded via binsdl, so a single Linux runner cross-compiles
+# every target with no SDL toolchain. See .github/workflows/release.yml.
+version: 2
+
+project_name: toybox
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: toybox
+    main: ./cmd/play
+    binary: toybox
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos:
+      - darwin
+      - windows
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # All 6 combinations build (pure Go). macOS, Windows, and Linux/amd64 embed
+    # SDL3 via binsdl and are fully self-contained; Linux/arm64 (Raspberry Pi)
+    # needs system SDL3 at runtime — see the release footer below.
+
+archives:
+  - id: toybox
+    ids:
+      - toybox
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "Merge pull request"
+
+release:
+  github:
+    owner: anthonyrego
+    name: toybox
+  draft: false
+  prerelease: auto
+  footer: |
+    ## Install
+
+    Download the archive for your OS and CPU, extract it, and run `toybox`.
+
+    - **macOS**, **Windows**, and **Linux (amd64)** builds bundle SDL3 — nothing else to install.
+    - **Linux (arm64 / Raspberry Pi)** needs system SDL3 at runtime:
+      `sudo apt install libsdl3-0` (or your distro's equivalent).

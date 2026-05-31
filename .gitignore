@@ -1,3 +1,6 @@
 firmware/wand_controller/config.h
 .DS_Store
 /cmd/play/play
+
+# GoReleaser build output
+/dist/

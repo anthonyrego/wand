@@ -110,6 +110,9 @@ notarize:
       sign:
         certificate: "{{ .Env.MACOS_SIGN_P12 }}"
         password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+        # binsdl dlopen()s an embedded SDL3 dylib; the hardened runtime's Library
+        # Validation would block it (different Team ID) without this entitlement.
+        entitlements: ./entitlements.plist
       notarize:
         issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
         key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"

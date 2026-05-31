@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- The app embeds SDL3 (binsdl): at startup it extracts libSDL3.dylib to a
+       temp dir and dlopen()s it. The hardened runtime that notarization
+       requires enforces Library Validation, which rejects a dylib signed by a
+       different Team ID ("not valid for use in process"). This Apple-sanctioned
+       entitlement disables that check so the embedded SDL3 can load. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

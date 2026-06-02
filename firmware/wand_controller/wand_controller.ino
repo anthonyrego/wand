@@ -30,6 +30,44 @@ const unsigned long WIFI_CONNECT_TIMEOUT_S = 20;      // try saved creds this lo
 const unsigned long WIFI_PORTAL_TIMEOUT_S  = 180;     // close an unattended portal and reboot to retry
 const unsigned long WIFI_LOST_RESTART_MS   = 120000;  // reboot after this long offline so a router change re-opens the portal
 
+// Restyle the WiFi setup captive portal to match the Toy Box web app: dark navy
+// page, a rounded panel "card", a purple→orange brand bar, warm-accent buttons
+// and panel-colored inputs (mirrors pkg/control/web/index.html's :root palette).
+// WiFiManager emits this into <head> AFTER its built-in <style>, so these rules
+// win by cascade order. setCustomHeadElement stores the pointer (no copy), so
+// this must have static storage duration — a file-scope literal is fine.
+const char CAPTIVE_PORTAL_HEAD[] =
+  "<meta name='theme-color' content='#11131a'>"
+  "<style>"
+  "body{background:#11131a;color:#e8eaf2;margin:0;padding:0 14px 28px;"
+  "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}"
+  ".wrap{display:block;background:#1b1e29;border-radius:14px;padding:20px 18px;"
+  "margin:18px auto 0;max-width:460px;box-shadow:0 10px 30px rgba(0,0,0,.45)}"
+  ".wrap:before{content:'';display:block;height:6px;border-radius:999px;"
+  "margin:2px 0 18px;background:linear-gradient(135deg,#6a32c8,#c8823c)}"
+  "h1{font-size:22px;letter-spacing:2px;text-transform:uppercase;"
+  "text-align:center;margin:4px 0 2px}"
+  "h3{font-size:13px;font-weight:400;color:#8b91a6;text-align:center;margin:0 0 16px}"
+  "label{font-size:13px;color:#8b91a6}"
+  "label[for=s],label[for=p]{display:block;margin:14px 0 5px}"
+  "input{background:#232737;color:#e8eaf2;border:1px solid #2c3144;border-radius:10px;"
+  "padding:12px;width:100%;box-sizing:border-box;font-size:16px}"
+  "input[type=checkbox],input[type=radio]{width:auto}"
+  "button,input[type=submit],input[type=button]{background:#f0aa5a;color:#1a1206;"
+  "font-weight:600;border:0;border-radius:12px;padding:14px;width:100%;font-size:16px;"
+  "line-height:1.2;cursor:pointer;margin:6px 0}"
+  "button:hover{filter:brightness(1.06)}"
+  "button.D{background:#dc3630;color:#fff}"
+  "a{color:#e8eaf2;font-weight:600;text-decoration:none}"
+  "a:hover{color:#5a9cf0}"
+  ".q[role=img]{filter:invert(1)}"
+  ".msg{background:#232737;border:0;border-left:4px solid #5a9cf0;border-radius:10px;"
+  "padding:14px 16px;margin:14px 0;color:#e8eaf2}"
+  ".msg.S{border-left-color:#5ad08a}"
+  ".msg.D{border-left-color:#dc3630}"
+  "hr{border:0;border-top:1px solid #2c3144;margin:18px 0}"
+  "</style>";
+
 // Broadcast address for discovery
 IPAddress broadcastIP(255, 255, 255, 255);
 
@@ -104,6 +142,9 @@ void connectWiFi() {
   WiFiManager wm;
   wm.setConnectTimeout(WIFI_CONNECT_TIMEOUT_S);
   wm.setConfigPortalTimeout(WIFI_PORTAL_TIMEOUT_S);
+  // Brand the captive portal to match the Toy Box web app.
+  wm.setTitle("Toy Box");
+  wm.setCustomHeadElement(CAPTIVE_PORTAL_HEAD);
   wm.setAPCallback([](WiFiManager *) {
     setLED(0, 0, 255);  // solid blue: "join my WiFi to set me up"
     Serial.print("Setup portal open — join WiFi network: ");

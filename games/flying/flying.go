@@ -49,6 +49,24 @@ type Game struct {
 	// press, so the pose the wand is held in at calibration reads as "level".
 	calib *calibration.Calibrator
 
+	// Rings to fly through: a stream of hoops ahead of the player, each
+	// rewarding a clean pass-through with a sparkle pop, a light pulse, and a
+	// chime that climbs a scale with the combo streak.
+	rings    []ring
+	ringMesh []*mesh.Mesh // one prebuilt torus per palette color
+	pops     []pop
+	popVB    *sdl.GPUBuffer
+	popIB    *sdl.GPUBuffer
+
+	combo                  int
+	lastHitTime            float32
+	flash                  float32 // screen-flash intensity, decays to 0
+	flashR, flashG, flashB uint8
+
+	stream *sdl.AudioStream
+	voices []chimeVoice
+	mixBuf []float32
+
 	debugMeshes [3]*mesh.Mesh
 }
 
@@ -62,9 +80,10 @@ func (g *Game) Init(e *engine.Engine) error {
 	e.Cam.Position = mgl32.Vec3{0, 0, 0}
 	e.Cam.Far = 100
 
-	// Sky dome
+	// Sky dome. Radius sits just inside the camera far plane (100) so the rings,
+	// which are drawn first and write depth, always render in front of it.
 	const (
-		sphereRadius   = 30.0
+		sphereRadius   = 95.0
 		sphereRings    = 16
 		sphereSegments = 24
 	)
@@ -163,6 +182,21 @@ func (g *Game) Init(e *engine.Engine) error {
 		g.spawnParticle(&g.particles[i])
 	}
 
+	// Rings to fly through (built after orientation/position are set).
+	if err := g.initRings(e); err != nil {
+		return err
+	}
+
+	// Audio for the pass-through chimes (best-effort; game runs muted on failure).
+	if e.Audio != nil {
+		stream, err := e.Audio.NewStream()
+		if err != nil {
+			fmt.Println("Warning: flying audio:", err)
+		} else {
+			g.stream = stream
+		}
+	}
+
 	return nil
 }
 
@@ -182,6 +216,7 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 
 	// Move forward
 	forward := g.orientation.Rotate(mgl32.Vec3{0, 0, -1})
+	prevPos := g.position
 	g.position = g.position.Add(forward.Mul(flySpeed * dt))
 
 	// Sync camera position for engine light/fog uniforms
@@ -198,6 +233,22 @@ func (g *Game) Update(e *engine.Engine, dt float32) bool {
 			g.spawnParticle(p)
 		}
 	}
+
+	// Rings: detect pass-throughs (using the pre-move position for the segment
+	// test), advance pops, and drive the point-light pulses.
+	g.updateRings(e, dt, prevPos)
+
+	// Screen flash on a clear: briefly brighten in the ring's color, decaying
+	// back to the neutral {1,1,1} tint set in Init.
+	boost := g.flash * 0.6
+	e.PostProcess.Tint = mgl32.Vec4{
+		1 + boost*float32(g.flashR)/255,
+		1 + boost*float32(g.flashG)/255,
+		1 + boost*float32(g.flashB)/255,
+		0,
+	}
+
+	g.generateAudio(dt)
 
 	return true
 }
@@ -216,7 +267,15 @@ func (g *Game) Render(e *engine.Engine, frame renderer.RenderFrame) {
 	camRight := mgl32.Vec3{rotMatrix[0], rotMatrix[1], rotMatrix[2]}
 	camUp := mgl32.Vec3{rotMatrix[4], rotMatrix[5], rotMatrix[6]}
 
-	// Sky dome first (background)
+	// Solid rings first (lit pipeline). Drawing them before any swirl/fireball
+	// draw keeps the lit pipeline, its samplers, and the engine's light uniforms
+	// — all bound by BeginScenePass — valid, the same "lit draw first" order drum
+	// circle relies on. They write depth, so the dome and stars occlude correctly.
+	g.renderRings(e, frame, viewProj)
+
+	// Sky dome (background). Its radius sits just inside the far plane so every
+	// ring is nearer than it and stays visible in front; it writes no depth, so
+	// it fills only the pixels the rings didn't.
 	skyViewProj := proj.Mul4(invRot) // strip translation so dome is always centered
 	skyModel := mgl32.Ident4()
 	e.Rend.DrawSwirl(frame.CmdBuf, frame.ScenePass, renderer.SwirlDrawCall{
@@ -228,8 +287,11 @@ func (g *Game) Render(e *engine.Engine, frame renderer.RenderFrame) {
 		Time:         g.time,
 	})
 
-	// Particles on top (additive blend)
+	// Particles/stars (additive blend)
 	g.renderParticles(e, frame, viewProj, camRight, camUp)
+
+	// Pass-through celebrations on top (additive)
+	g.renderPops(e, frame, viewProj, camRight, camUp)
 }
 
 func (g *Game) renderParticles(e *engine.Engine, frame renderer.RenderFrame, viewProj mgl32.Mat4, right, up mgl32.Vec3) {
@@ -354,6 +416,20 @@ func (g *Game) Destroy(e *engine.Engine) {
 	}
 	if g.partIB != nil {
 		e.Rend.ReleaseBuffer(g.partIB)
+	}
+	for _, m := range g.ringMesh {
+		if m != nil {
+			m.Destroy(e.Rend)
+		}
+	}
+	if g.popVB != nil {
+		e.Rend.ReleaseBuffer(g.popVB)
+	}
+	if g.popIB != nil {
+		e.Rend.ReleaseBuffer(g.popIB)
+	}
+	if g.stream != nil {
+		g.stream.Destroy()
 	}
 	for i, m := range g.debugMeshes {
 		if m != nil {
